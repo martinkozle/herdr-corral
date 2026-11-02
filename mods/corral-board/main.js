@@ -13,7 +13,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.0";
+const BUILD = "0.1.1-dev.1";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -920,6 +920,34 @@ export default class Board extends View {
       .child(this.chip(t, "bar-no", "No (n)", false, (cx) => { this.bar = null; b.no?.(cx); }));
   }
 
+  // "Next up": Claude agents waiting for you (not working) whose cache is still warm, soonest to expire
+  // first, so the one to answer before its cache goes cold is leftmost. Null when there are none.
+  nextUp(t, now) {
+    const waiting = [...this.ags.values()]
+      .filter((a) => a.status !== "working")
+      .map((a) => ({ a, w: warmth(this.cache.info(this.terms.get(a.address)?.foreground?.pid), now) }))
+      .filter((x) => x.w && !x.w.cold)
+      .sort((x, y) => this.cache.info(this.terms.get(x.a.address)?.foreground?.pid).expires - this.cache.info(this.terms.get(y.a.address)?.foreground?.pid).expires);
+    if (!waiting.length) return null;
+    const taskOf = (addr) => this.board.tasks.find((tk) => tk.agents.some((r) => r.address === addr))?.title;
+    return h_flex().id("nextup").flex_none().h(34).px(14).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome).overflow_hidden()
+      .child(div().flex_none().text_size(11).text_color(t.dim).child("Next up"))
+      .children(waiting.map(({ a }) => {
+        const term = this.terms.get(a.address);
+        const sp = spaces().find((x) => x.id === a.space);
+        const label = taskOf(a.address) ?? agentName(a);
+        return h_flex().id(`nu-${a.address}`).flex_none().h(24).px(7).gap(6).items_center().rounded(6).cursor_pointer()
+          .bg(alpha(t.foreground, "0a")).hover((el) => el.bg(t.hover))
+          .tooltip(`${agentName(a)} · ${a.space_name ?? ""}`)
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.goTo(a); })
+          .child(spaceTile(t, sp, 13))
+          .child(div().max_w(180).truncate().text_size(12).text_color(t.foreground).child(label))
+          .child(this.status(t, a.status, this.cache.info(term?.foreground?.pid)?.waitingFor) ?? div())
+          .child(this.cacheBadge(t, term, now) ?? div());
+      }));
+  }
+
   pill(t) {
     const showing = find(layout(), "corral-view")?.active === "board";
     const count = agents().filter((a) => !terminals().find((x) => x.address === a.address)?.labels?.["corral.task"]).length;
@@ -988,6 +1016,7 @@ export default class Board extends View {
         .child(inOverlay
           ? this.chip(t, "close", "Close", false, () => closeOverlay(props().overlay))
           : find(layout(), "corral-view") ? this.chip(t, "back", "← Terminals", false, () => flip("main")) : div()))
+      .when(!!this.nextUp(t, now), (el) => el.child(this.nextUp(t, now)))
       .when(!!s.error || s.readOnly, (el) => el.child(div().px(14).py(6).bg(alpha(t.blocked, "22")).text_size(12).text_color(t.blocked)
         .child(s.error ?? "This board was made by a newer Corral Board; it is shown read-only.")))
       // Sideways scrolling is ours: only a swipe's horizontal part (or shift + wheel) moves the board,

@@ -20,6 +20,11 @@ One full-size view on `canvas`, top to bottom:
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
   (window).
+- **Next up** (34px, `chrome`, bottom `border`), only while some Claude agent
+  waits for you (idle, done or blocked) with a warm cache: "Next up" (11px
+  `dim`), then one chip per such agent, soonest expiry first: space tile, the
+  task's name (else the agent's), status, cache badge. A click goes to the
+  agent. *(0.1.1, not yet seen with a qualifying agent.)*
 - **Columns**, 280px wide, 10px apart, starting 10px in. Each scrolls
   vertically on its own; the row of columns scrolls sideways.
   - **Column header** (32px): name (12px medium `muted`), task count (11px
