@@ -5,7 +5,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared, readTextFile } from "herdr";
 import { Store, newId, DIR } from "./store.js";
-import { Cache, warmth, warmthColor, prLinks, prLabel } from "./cache.js";
+import { Cache, warmth, warmthColor, prLinks, prLabel, linkGroup, repoOf } from "./cache.js";
 import { Codex } from "./codex.js";
 
 const ICONS = "mods/workspace-chrome";
@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.4";
+const BUILD = "0.1.5";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -114,6 +114,33 @@ function waited(status, term, now) {
   if (!at || (status !== "blocked" && status !== "done")) return null;
   return `waiting ${ago(at, now)}`;
 }
+
+// A row's links, oldest mention first: { u, at } (at: first seen, ms). Older boards stored bare URLs.
+const linksOf = (r) => (r.links ?? []).map((l) => (typeof l === "string" ? { u: l, at: null } : l));
+
+// The links shown on a row that isn't picked: the newest of each repository (or Jira project), newest
+// first, at most three. Picked: all of them, newest first, each numbered.
+function rowLinks(r, all) {
+  const list = linksOf(r).reverse();
+  if (all) return linkGroups(r).flatMap((g) => g.links).slice(0, 9);
+  const seen = new Set();
+  return list.filter((l) => { const g = linkGroup(l.u); if (seen.has(g)) return false; seen.add(g); return true; }).slice(0, 3);
+}
+
+// A row's links by repository (or Jira project), the group with the newest link first, newest first within.
+function linkGroups(r) {
+  const groups = [];
+  for (const l of linksOf(r).reverse()) {
+    const g = linkGroup(l.u);
+    let x = groups.find((y) => y.g === g);
+    if (!x) groups.push((x = { g, name: repoOf(l.u) ?? `${g} (Jira)`, links: [] }));
+    x.links.push(l);
+  }
+  return groups;
+}
+
+// A link's short name inside its group: "#412", "!7", or the Jira key.
+const shortLabel = (u) => (repoOf(u) ? prLabel(u).slice(repoOf(u).length + 1) : prLabel(u));
 
 const NAV = ["h", "l", "j", "k", "g", "G", "shift-g", "left", "right", "up", "down"];
 
@@ -287,7 +314,8 @@ export default class Board extends View {
     }
   }
 
-  // Keeps the last three PR links of each agent on its row, so they stay after the agent ends.
+  // Keeps the last ten links of each agent on its row (in mention order, each with when it was first seen),
+  // so they stay after the agent ends.
   async recordLinks() {
     const terms = new Map(src.terminals().map((x) => [x.address, x]));
     const ups = [];
@@ -296,8 +324,11 @@ export default class Board extends View {
       if (term?.labels?.["corral.task"] !== t.id) continue;
       const found = term.report?.app === "claude-code" ? this.cache.info(term)?.prs : this.screenLinks.get(r.address);
       if (!found?.length) continue;
-      const links = prLinks([...(r.links ?? []), ...found].join(" ")).slice(-3);
-      if (links.join(" ") !== (r.links ?? []).join(" ")) ups.push([t.id, r.address, links]);
+      const old = linksOf(r);
+      const urls = prLinks([...old.map((l) => l.u), ...found].join(" ")).slice(-10);
+      if (urls.join(" ") === old.map((l) => l.u).join(" ") && !(r.links ?? []).some((l) => typeof l === "string")) continue;
+      const now = Date.now();
+      ups.push([t.id, r.address, urls.map((u) => ({ u, at: old.find((l) => l.u === u)?.at ?? now }))]);
     }
     if (!ups.length) return;
     await this.store.change((b) => {
@@ -819,7 +850,9 @@ export default class Board extends View {
       if (k === "k" || k === "up") { this.pickAgent = Math.max(0, this.pickAgent - 1); cx.notify(); return; }
       if (k === "enter") { this.pickAgent = null; this.actOnRow(task, x, cx); cx.notify(); return; }
       if (k === "a") { this.pickAgent = null; this.openTask(task, cx, "launch"); cx.notify(); return; }
-      if (k === "o" && x?.r.links?.length) { openUrl(x.r.links[x.r.links.length - 1]); cx.notify(); return; }
+      // 1–9: open that link of the picked agent (numbered newest first).
+      const n = parseInt(k, 10);
+      if (n >= 1 && n <= 9 && x) { const l = rowLinks(x.r, true)[n - 1]; if (l) openUrl(l.u); cx.notify(); return; }
       // d or x: this agent leaves the task (back to the Inbox; its terminal keeps running). Never the task.
       if ((k === "x" || k === "d") && x) {
         this.label(x.r.address, null); // whatever runs there now (an agent, or the shell it left)
@@ -949,7 +982,7 @@ export default class Board extends View {
     const sp = src.spaces().find((s) => s.id === (a?.space ?? row.space));
     const pic = icon(a?.program, 14, t.foreground);
     // Each agent is its own faint block (live ones tinted), so neighbours read apart without inner borders.
-    return h_flex().id(`ar-${row.address}`).gap(6).px(4).py(4).rounded(6).items_start().text_size(12)
+    return v_flex().id(`ar-${row.address}`).gap(4).px(4).py(4).rounded(6).text_size(12)
       .when(st.state !== "ended" && !picked, (el) => el.bg(alpha(t.foreground, "0a")))
       // Always a 1px border on live rows (clear while working), so a status change doesn't shift the row.
       .when(live, (el) => el.border(1).border_color(this.tone(t, a.status) ?? alpha(t.foreground, "00")))
@@ -972,6 +1005,8 @@ export default class Board extends View {
         .tooltip("Resume this conversation")
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); if (!this.wasDrag()) cx.spawn((cx) => this.revive(taskId, row, cx)); }))
+      // The top: number, icon, name and space, status and cache, ×. The links go under it, across the row.
+      .child(h_flex().gap(6).items_start()
       .child(div().pt(1).w(8).flex_none().child(this.kbd(t, num, hints)))
       .child(div().pt(1).w(14).flex_none().when(!!pic, (el) => el.child(pic)))
       .child(v_flex().flex_1().min_w(0).gap(1)
@@ -981,16 +1016,7 @@ export default class Board extends View {
           .child(div().truncate().text_size(10.5).text_color(t.dim).child(sp?.name ?? ""))
           .when(live && !!waited(a.status, st.term, now), (el) => el.child(div().flex_none().text_size(10.5)
             .text_color(a.status === "blocked" ? t.blocked : t.dim).child(`· ${waited(a.status, st.term, now)}`))))
-        // PR links it printed, newest first; o opens the newest while the row is picked.
-        // The chips wrap under each other from the same left edge (the space tile's); the o hint follows the last.
-        .when(!!row.links?.length, (el) => el.child(h_flex().gap(4).pt(2).flex_wrap().items_center()
-          .children([...row.links].reverse().map((u, i) => div().id(`pr-${row.address}-${i}`).px(5).h(16).rounded(4).flex().items_center()
-            .text_size(10.5).font_semibold().text_color(t.accent).bg(alpha(t.accent, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
-            .tooltip(u)
-            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .on_click((_e, cx) => { cx.stop_propagation(); openUrl(u); })
-            .child(prLabel(u))))
-          .child(this.kbd(t, "o", picked)))))
+        )
       // Status on top, cache time under it, right-aligned together.
       .child(v_flex().flex_none().gap(2).items_end()
         .child(h_flex().h(16).items_center()
@@ -1004,7 +1030,36 @@ export default class Board extends View {
         .child(div().id(`rm-${row.address}`).px(2).text_color(t.dim).when(!(hovered || showX), (el) => el.opacity(0)).hover((s) => s.text_color(t.foreground)).tooltip("Back to the Inbox")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => { cx.stop_propagation(); this.label(row.address, null); this.change((b) => { const tk = b.tasks.find((x) => x.id === taskId); tk.agents = tk.agents.filter((r) => r.address !== row.address); }, cx); })
-          .child("×")));
+          .child("×"))))
+      .when(!!row.links?.length, (el) => el.child(this.linksBlock(t, row, picked, now)));
+  }
+
+  // The links an agent printed (PRs, Jira issues), across the row under its name, from the name's left edge.
+  // Unpicked: the newest of each repository, one chip per line ("web-app #412"). Picked: every link, grouped
+  // under its repository's name, each a numbered line ("1  #412  3h ago"; 1–9 opens it); a link that a newer
+  // one of its repository follows is dimmed. A chip's tooltip is its whole link.
+  linksBlock(t, row, picked, now) {
+    const chip = (l, label, i, fresh) => div().id(`pr-${row.address}-${i}`).min_w(0).px(5).h(16).rounded(4).flex().items_center()
+      .text_size(10.5).font_semibold().text_color(fresh ? t.accent : t.muted)
+      .bg(alpha(fresh ? t.accent : t.foreground, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
+      .tooltip(l.u)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); openUrl(l.u); })
+      .child(div().truncate().child(label));
+    if (!picked) {
+      return v_flex().pl(34).gap(3).items_start().min_w(0)
+        .children(rowLinks(row, false).map((l, i) => h_flex().max_w_full().min_w(0).child(chip(l, prLabel(l.u), i, true))));
+    }
+    let n = 0;
+    return v_flex().pl(20).gap(6).min_w(0).children(linkGroups(row).map((g) => v_flex().gap(3).min_w(0)
+      .child(div().pl(14).truncate().text_size(10.5).text_color(t.dim).child(g.name))
+      .children(g.links.map((l, k) => {
+        const i = n++;
+        return h_flex().gap(6).items_center().min_w(0).when(i >= 9, (el) => el.opacity(0.6))
+          .child(div().w(8).flex_none().child(this.kbd(t, i < 9 ? String(i + 1) : "")))
+          .child(chip(l, shortLabel(l.u), i, k === 0))
+          .when(!!l.at, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${ago(l.at, now)} ago`)));
+      }))));
   }
 
   // Hover bookkeeping shared by cards and column bodies while dragging.
@@ -1145,7 +1200,7 @@ export default class Board extends View {
           .child(h_flex().gap(6).items_start()
             .child(div().flex_1().min_w(0).child(task.notes || "Add notes…"))
             .child(this.kbd(t, "i", hints))))
-      .when(shownRows.length > 0, (el) => el.child(v_flex().gap(4).children(shownRows.map((x, n) => this.agentRow(t, x.r, x.st, now, hovered, task.id, x.r.address === picked, n < 9 ? String(n + 1) : "", picked === x.r.address, hints)))))
+      .when(shownRows.length > 0, (el) => el.child(v_flex().gap(4).children(shownRows.map((x, n) => this.agentRow(t, x.r, x.st, now, hovered, task.id, x.r.address === picked, n < 9 ? String(n + 1) : "", picked === x.r.address, hints && !picked)))))
       .when(launching, (el) => el.child(this.details(t, task)));
   }
 
@@ -1324,7 +1379,7 @@ export default class Board extends View {
     if (this.attach) return box.child(`Add "${this.attach.name}" to a task: move to it (h j k l), enter adds it`).child(div().flex_1())
       .child(this.chip(t, "attach-x", "Cancel (esc)", false, () => { this.attach = null; }));
     if (b.kind === "note") return box.child(b.text).child(div().flex_1()).child(this.chip(t, "bar-ok", "OK", false, () => { this.bar = null; }));
-    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · o its PR · a launch · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · u undo · U redo · A archive view · t add an Inbox agent to a task · s / S space · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
+    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · 1–9 its links · a launch · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · u undo · U redo · A archive view · t add an Inbox agent to a task · s / S space · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
     if (b.kind === "move") return box.child("Move to:").children((this.cols ?? []).slice(1).map((c, i) => div().text_color(t.muted).child(`${i + 1} ${c.name}`)));
     return box.child(b.text)
       .when(!!b.never, (el) => el.child(this.chip(t, "bar-never", `${b.neverOn ? "☑" : "☐"} Don't ask again`, false, () => { b.neverOn = !b.neverOn; })))

@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.4`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.5`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.4`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.5`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -160,13 +160,24 @@ One full-size view on `canvas`, top to bottom:
   `U` or `ctrl-r`) puts an undone step back, under the same rule; a new
   change drops what's left to redo. After either, the board has the keyboard
   and a task the step moved (or brought back) is selected.
-- **PR links:** the last three pull/merge request links each agent printed
-  (GitHub, GitLab, Bitbucket Cloud and Server/Data Center) show under its
-  name as chips ("PR #12", "MR !7"), newest first; a click (or `o` while the
-  row is picked) opens it in the browser. They stay on the row after the
-  agent ends. The chips wrap from one left edge (under the space tile), and
-  the faint `o` hint follows the last chip, so a second line of chips starts
-  where the first did.
+- **Links** (PRs and Jira issues): pull/merge request links each agent
+  printed (GitHub, GitLab, Bitbucket Cloud and Server/Data Center) and Jira
+  issue links (`…/browse/KEY-12`). Chips are labelled by repository ("web-app
+  #412", "helm-charts !7") or issue key ("NCA-123"), one per line under the
+  agent's space. Unpicked, a row shows the newest link of each repository (or
+  Jira project), newest first, at most three. While the row is picked
+  (`enter` on the card; the agents' own number hints hide meanwhile, since
+  digits now mean links), it lists all of them (up to nine), numbered: `1`–`9`
+  opens one; under each chip, a dim line gives the host and how long ago it
+  was first seen (its own line, so nothing is cut); a long repository name
+  shortens with … (the tooltip has the link). And
+  a link that a newer one of its repository follows is dimmed. A click opens
+  any chip. The row keeps the last ten (`links: [{ u, at }]`, in the order
+  they were last mentioned; older boards' bare URLs still read), and they
+  stay after the agent ends. "Newest" is the last mentioned, so a PR the
+  agent keeps talking about moves to the front. Only full links with a
+  number count: a bare "#412" or `git push`'s "create a pull request" link
+  doesn't.
 - **Filter:** shows tasks whose title, notes or agent names contain the text,
   and Inbox entries whose name does.
 - **Keys** (only while the board has the keyboard; text fields take every key):
@@ -184,7 +195,7 @@ One full-size view on `canvas`, top to bottom:
   | `e` | rename the card (an Inbox entry: make it a task) |
   | `i` | edit the card's notes |
   | `a` | launch an agent from the card |
-  | `enter` | pick one of the card's agents: `j` `k` move, `enter` goes to it or resumes it, `o` opens its newest PR link, `a` opens the launch form, `d`/`x` take it off the task, anything else leaves (only `h` `l` carry on) |
+  | `enter` | pick one of the card's agents: `j` `k` move, `enter` goes to it or resumes it, `1`–`9` open its links, `a` opens the launch form, `d`/`x` take it off the task, anything else leaves (only `h` `l` carry on) |
   | `t` | on an Inbox agent: add it to an existing task. Move to the task with the usual keys; `enter` adds it, `esc` cancels (the bottom bar says so) |
   | `1`–`9` | go to (or resume) the card's Nth agent |
   | `x` | archive the card |

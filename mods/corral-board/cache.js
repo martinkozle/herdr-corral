@@ -6,8 +6,11 @@ import { exec, home, machines, readTextFile, watchFolder } from "herdr";
 
 const TAIL_BYTES = "2000000";
 
-// Pull/merge request links: GitHub, GitLab, Bitbucket Cloud and Bitbucket Server/Data Center.
-const PR_RE = /https?:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/-\/merge_requests\/\d+|bitbucket\.org\/[\w.-]+\/[\w.-]+\/pull-requests\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/projects\/[\w~.-]+\/repos\/[\w.-]+\/pull-requests\/\d+)/g;
+// Pull/merge request links (GitHub, GitLab, Bitbucket Cloud and Bitbucket Server/Data Center) and Jira
+// issue links (…/browse/KEY-12).
+const PR_RE = /https?:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/-\/merge_requests\/\d+|bitbucket\.org\/[\w.-]+\/[\w.-]+\/pull-requests\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/projects\/[\w~.-]+\/repos\/[\w.-]+\/pull-requests\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/browse\/[A-Z][A-Z0-9_]+-\d+)/g;
+// Lines worth parsing for them (a cheap test before the regex).
+const LINKY = ["/pull", "/merge_requests/", "/browse/"];
 
 // The PR links in some text, in order of appearance, each once (its last appearance counts).
 export function prLinks(text) {
@@ -16,11 +19,29 @@ export function prLinks(text) {
   return seen;
 }
 
-// "PR #12" (GitLab: "MR !12").
-export function prLabel(url) {
-  const n = url.match(/(\d+)$/)?.[1];
-  return url.includes("/merge_requests/") ? `MR !${n}` : `PR #${n}`;
+// The repository a PR link is in (its last path name before the PR part), or null (a Jira link).
+export function repoOf(url) {
+  return url.match(/github\.com\/[^/]+\/([^/]+)\/pull\//)?.[1]
+    ?? url.match(/\/([^/]+)\/-\/merge_requests\//)?.[1]
+    ?? url.match(/\/repos\/([^/]+)\/pull-requests\//)?.[1]
+    ?? url.match(/bitbucket\.org\/[^/]+\/([^/]+)\/pull-requests\//)?.[1]
+    ?? null;
 }
+
+// "web-app #12" (GitLab: "web-app !12"); a Jira link: its key, "PROJ-12".
+export function prLabel(url) {
+  const jira = url.match(/\/browse\/([A-Z][A-Z0-9_]+-\d+)$/)?.[1];
+  if (jira) return jira;
+  const n = url.match(/(\d+)$/)?.[1];
+  return `${repoOf(url) ?? "PR"} ${url.includes("/merge_requests/") ? "!" : "#"}${n}`;
+}
+
+// What links group by: the repository for a PR, the project key for a Jira issue.
+export function linkGroup(url) {
+  return url.match(/\/browse\/([A-Z][A-Z0-9_]+)-\d+$/)?.[1] ?? `${url.match(/^https?:\/\/([^/]+)/)?.[1]}/${repoOf(url)}`;
+}
+
+export const hostOf = (url) => url.match(/^https?:\/\/([^/]+)/)?.[1] ?? "";
 const TTL = { "1h": 3600000, "5m": 300000 };
 
 // The machine a terminal address lives on (`machine/t4`), null for this one.
@@ -29,7 +50,7 @@ const keyOf = (term) => (term?.foreground?.pid ? `${machineOf(term.address) ?? "
 
 // On another machine: prints the transcript's size, then the lines that matter from its tail, or
 // exits 3 when the size is still what we read last time (nothing new to send over ssh).
-const REMOTE_READ = `s=$(wc -c < "$1") || exit 1; [ "$s" = "$2" ] && exit 3; echo "$s"; tail -c "$3" "$1" | grep -F -e '"assistant"' -e '"api-request"' -e '/pull/' -e '/pull-requests/' -e '/merge_requests/'; exit 0`;
+const REMOTE_READ = `s=$(wc -c < "$1") || exit 1; [ "$s" = "$2" ] && exit 3; echo "$s"; tail -c "$3" "$1" | grep -F -e '"assistant"' -e '"api-request"' -e '/pull/' -e '/pull-requests/' -e '/merge_requests/' -e '/browse/'; exit 0`;
 
 export class Cache {
   constructor() {
@@ -126,7 +147,7 @@ export class Cache {
     const prs = [];
     for (const line of lines) {
       if (!line.startsWith("{")) continue;
-      if (line.includes("/pull") || line.includes("/merge_requests/")) prs.push(...prLinks(line));
+      if (LINKY.some((x) => line.includes(x))) prs.push(...prLinks(line));
       if (!line.includes('"assistant"') && !line.includes('"api-request"')) continue;
       let j;
       try { j = JSON.parse(line); } catch { continue; }
@@ -135,8 +156,8 @@ export class Cache {
         ttl = (j.cacheControl ?? []).some((c) => c?.value?.ttl === "1h") ? "1h" : "5m";
       }
     }
-    // The last three PR links the conversation mentions, newest last.
-    if (prs.length) e.prs = prLinks(prs.join(" ")).slice(-3);
+    // The last ten links the conversation mentions, newest last.
+    if (prs.length) e.prs = prLinks(prs.join(" ")).slice(-10);
     e.ttl = ttl ?? e.ttl ?? "5m";
     // A tail with no assistant reply in it keeps what an earlier read found.
     e.expires = last ? Date.parse(last) + TTL[e.ttl] : e.expires;

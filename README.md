@@ -8,14 +8,14 @@ small mods. Each mod works on its own.
 
 - **Corral Board** (`mods/corral-board`): your own columns and tasks; each
   task holds its agents with their Herdr status, a Claude prompt-cache
-  countdown and the PR links they printed; an Inbox of agents not on a task
+  countdown and the PR and Jira links they printed; an Inbox of agents not on a task
   yet; drag and drop; launch an agent from a task (optionally in a new git
   worktree) or resume an ended Claude or Codex one, here or on another
   machine; undo, redo and an archive view; keyboard-driven too (`?` on the board).
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.4`, in daily use. Built on herdr-app 0.1.12.
+Status: `0.1.5`, in daily use. Built on herdr-app 0.1.12.
 
 ## Use the whole setup
 
@@ -37,8 +37,8 @@ If the files don't work on your Herdr version, have your agent rebuild from the
 ## What it touches
 
 The board runs `herdr-app` and `hc` (to start agents, label their
-terminals and read their screens for PR links), `git` (only for a new
-worktree), `open`/`xdg-open` (a PR link you click), and `find`, `tail`, `ls`,
+terminals and read their screens for PR and Jira links), `git` (only for a new
+worktree), `open`/`xdg-open` (a link you click), and `find`, `tail`, `ls`,
 `rm`, `mkdir`, `ps`, `wc`, `grep`, `printenv` (here and on machines with
 agents on the board). It reads Codex's `~/.codex/sessions/` too. It reads Claude Code's
 `~/.claude/sessions/` and `~/.claude/projects/` (for the cache countdown and
