@@ -8,16 +8,16 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.8`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.9`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.8`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
-  keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
-  filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
+  build (`0.1.9`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  keyboard, faint `dim` when a click is needed first), the filter field
+  (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
   (window).
 - **Next up** (34px, `chrome`, bottom `border`), only while some Claude agent
@@ -27,9 +27,12 @@ One full-size view on `canvas`, top to bottom:
   agent.
 - **Columns**, 280px wide, 10px apart, starting 10px in. Each scrolls
   vertically on its own; the row of columns scrolls sideways.
-  - **Column header** (32px): name (12px medium `muted`), task count (11px
-    `dim`), then "⋯" (column menu) and "+" (new task). The Done column also
-    has "Clear" while it holds tasks.
+  - **Column header** (32px): name (12px medium `muted`, `foreground` on the
+    selected column; a long one is cut), task count (11px `dim`), then "⋯"
+    (column menu) and "+" (new task). The Done column also has "Clear" while
+    it holds tasks.
+  - **Selected empty column:** a dashed `accent` box, "Empty · n to add a
+    task" ("No match · esc clears the filter" while a filter is on).
   - **Inbox** is always first: no menu, no "+", can't be moved or deleted.
 - **Default columns:** To do · In progress · Review · Waiting on others ·
   Waiting on build · Parked · Done.
@@ -61,11 +64,14 @@ One full-size view on `canvas`, top to bottom:
   `ansi2`, half = `ansi3`, none = `ansi1` (pill at 20%, text full). Expired:
   "cold" in `dim`, no pill. Unknown: nothing.
 - **Key hints:** faint letters inside their buttons (pencil `e`, "+" `a`,
-  column "+" `n`, notes `i`, agent numbers). They show on a hovered or
-  selected card, and on the selected column; hidden ones keep their space.
+  column "+" `n`, notes `i`, agent numbers). They show only on the selected
+  card (the keys act on it) and the selected column; a hovered card shows its
+  buttons without letters. Hidden ones keep their space.
 - **Bottom bar** (36px, `chrome`), only when needed: a confirmation ("Delete
   …?" Yes (y) / No (n), "Don't ask again" on Move to Done), the "Move to:"
-  list, the key help, or a note ("Move its tasks first.").
+  list (columns 1–9), or a note ("Move its tasks first."). A click anywhere
+  else answers a question no. **Key help** (`?`): a panel in its place, the
+  keys in four groups (Move, Tasks, Agents, Board); any key closes it.
 
 ## How it behaves
 
@@ -114,11 +120,16 @@ One full-size view on `canvas`, top to bottom:
   machine; none open: a note says so); the row then follows the new agent.
 - **"×" on an agent row** (or `d`/`x` while it's picked): the agent leaves the
   task and goes back to the Inbox. Its terminal keeps running.
-- **Column menu (⋯):** Rename, Move left, Move right, Add column before, Add
-  column after, Delete column. Deleting a column that holds tasks is refused.
+- **Column menu (⋯, or `c`):** Rename `r`, Move left `h`, Move right `l`,
+  Add column before `b`, Add column after `a`, Delete column `d` (each
+  letter works while the menu is open). Deleting a column that holds tasks,
+  or the last column, is refused. A new column's name field: Esc (or an
+  empty name) removes the column again.
 - **Archive** (`x`, or ⋯): the task leaves the board into the file's archive.
   **Delete** (`d`, or ⋯) asks first, then also moves it there, marked
-  `deleted` (dropped after 30 days). **Clear** archives everything in Done.
+  `deleted` (dropped after 30 days). **Clear** archives everything in Done
+  (asks, with the count). **Done** is the column with id `done`, else one
+  named "Done"; with neither, `space`, `X` and Clear say so instead.
 - **Archive view** ("Archive" in the header, or `A`): replaces the columns
   with a 640px list of archived and deleted tasks, newest first (title; when,
   from which column, agents, the notes' first line), through the filter.
@@ -192,9 +203,10 @@ One full-size view on `canvas`, top to bottom:
   | `H` `L` / shift-← → | move the card to the previous / next column; it stays selected, so repeat to carry it further. On an Inbox agent, `L` makes it a task in the first column (as dropping it there does) |
   | `K` `J` / shift-↑ ↓ | move the card up / down |
   | `m` | "Move to:", then 1–9 picks a column (an Inbox agent becomes a task there) |
-  | `space` | move the card to Done (asks, with "Don't ask again") |
-  | `n` | new task in this column (a draft card at the top: Enter adds it there and selects it, Esc cancels; no card shows as selected meanwhile) |
-  | `e` | rename the card (an Inbox entry: make it a task) |
+  | `space` | move the card to Done (asks; `a` ticks "Don't ask again") |
+  | `n` | new task in this column (a draft card at the top: Enter adds it there and selects it, Esc cancels; no card shows as selected meanwhile; under a space filter it gets that space) |
+  | `c` | the column's menu (its letters pick, `esc` closes) |
+  | `e` | rename the card (an Inbox entry: make it a task, which is then selected) |
   | `i` | edit the card's notes |
   | `a` | launch an agent from the card |
   | `enter` | pick one of the card's agents: `j` `k` move, `enter` goes to it or resumes it, `1`–`9` open its links, `a` opens the launch form, `d`/`x` take it off the task, anything else leaves (only `h` `l` carry on) |
@@ -207,9 +219,16 @@ One full-size view on `canvas`, top to bottom:
   | `U` / `ctrl-r` | redo |
   | `A` | the Archive view |
   | `s` / `S` | filter by space: next / previous chip (through All) |
-  | `/` | filter; `esc` clears it |
+  | `/` | filter (in the box, `esc` goes back to the board) |
+  | `esc` | one thing at a time: closes the launch form, else clears the text filter, else the space filter |
   | `?` | key help (again: closes) |
 
+- **Selection.** The selection is always a card or column that exists (cards
+  go when archived, filtered or an agent ends; it moves to their neighbour).
+  A click selects what it lands on: a card (its buttons too), a column's
+  header or empty space, the column of a "+". A dropped card, the task an
+  agent was dropped onto, a new task and an undone move are selected. The
+  launch form closes when the selection leaves its card.
 - **Opening the board.** In the corral layout: the Board button in the top bar, or
   `cmd-shift-k`, flips the work area between terminals and board; the board
   takes the keyboard when it shows, the terminal pane gets it back when it
@@ -218,7 +237,11 @@ One full-size view on `canvas`, top to bottom:
 - **Live.** The board redraws on Herdr's data changes, reloads when
   `board.json` changes on disk, re-reads a Claude transcript when it changes,
   and checks everything every 30s (the countdown, session ids, rejoining
-  agents). Nothing animates on a timer.
+  agents). Nothing animates on a timer. With several copies open (a popup
+  over the layout's board, boards in two windows), one keeps the records
+  (rejoining agents, session ids, links), claimed through
+  `shared("corral.keeper")` and taken over after 75s of silence, so two
+  copies' automatic saves don't wipe each other's undo history.
 
 ## Built from
 
@@ -230,7 +253,7 @@ One full-size view on `canvas`, top to bottom:
 - **Props:** none → the board; `{ role: "pill" }` → the corral layout's
   Board button in the top bar ("Board", or "Terminals" while the board
   shows; a blocked-color badge counting agents that need you or are done
-  and unseen; the Inbox count in `dim`), which also receives `corral-board.toggle`: it is always
+  and unseen, sub-agents left out), which also receives `corral-board.toggle`: it is always
   on screen, and Herdr delivers a mod's commands only to copies on screen.
 - **State:** `~/.config/herdr-app/corral/board.json`, read with
   `readTextFile`, written with `writeTextFile(path, text, expected)` (refused
@@ -312,6 +335,19 @@ it to `corral/demo.json`, reload the mod, screenshot, delete the file,
 reload again.
 
 ## Watch out
+
+- **A text box finishes only itself.** Opening a second box fires the first
+  one's blur after the second has replaced `this.rename` / `this.notesEdit`:
+  a blur handler that read those saved the wrong box and closed the new one.
+  Bind each handler to its own editor object, and after a box was just given
+  the keyboard (`focusBox`), don't take it back for the board.
+- **The drop line takes no room.** A line inserted between cards pushed the
+  card under the mouse down, out from under it, which moved the line, which
+  moved the card back: it flickered. It is drawn absolute over the gap, and
+  the gaps keep the last drop spot.
+- **A bad read must not end in a write.** A parse error sets read-only; a
+  good read clears it, and a save whose retry reloads into read-only stops
+  (else it wrote the old board over a half-saved hand edit).
 
 - **Take the keyboard once per request, never per render.** As a popup
   (`mod.open:corral-board`) nothing sets `corral.focusAt`; a check that
@@ -397,8 +433,12 @@ reload again.
 - `herdr-app check mods/corral-board` passes and the header shows the build.
 - A new board shows Inbox plus the seven default columns; running agents are
   in the Inbox.
-- Column "+" shows a draft card: Enter adds the task, Esc adds nothing; the
-  task survives a Herdr restart.
+- Column "+" shows a draft card: Enter adds the task at the top, selected, Esc
+  adds nothing; the task survives a Herdr restart.
+- Typing in one card's notes and then clicking another card's notes keeps
+  the first text; the second box stays open.
+- Dragging an Inbox agent slowly down a column moves the drop line card gap
+  by card gap, without flicker.
 - A task dragged to the fourth spot of another column lands there; dragging an
   Inbox entry onto a task adds the agent (`hc get <t>` shows `corral.task`);
   dragging an agent row back to the Inbox removes it and its label.

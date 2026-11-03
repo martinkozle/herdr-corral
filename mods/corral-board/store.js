@@ -49,7 +49,9 @@ export class Store {
       const b = JSON.parse(text);
       if ((b.schema ?? 0) > SCHEMA) { this.readOnly = true; this.board = b; return true; }
       this.board = migrate(b);
+      // A good read ends a read-only spell that a bad one (a hand edit half saved) started.
       this.error = null;
+      this.readOnly = false;
     } catch (e) {
       this.error = `board.json is not valid JSON: ${e.message}`;
       this.readOnly = true;
@@ -90,6 +92,8 @@ export class Store {
       } catch (e) {
         this.text = undefined; // force a reload
         await this.load();
+        // The file can't be read now (a hand edit in progress): never write the old board over it.
+        if (this.readOnly) return;
       }
     }
     this.error = "Couldn't save the board (it kept changing on disk).";
@@ -104,8 +108,9 @@ export class Store {
   async redo() { return this.step(this.future, this.history, "before", "after"); }
 
   async step(from, to, have, want) {
+    if (this.readOnly || this.demo) return null;
     const last = from.pop();
-    if (!last || this.readOnly || this.demo) return null;
+    if (!last) return null;
     await this.load();
     if (this.text !== last[have]) { this.history = []; this.future = []; return "changed"; }
     const was = this.board;
