@@ -1,8 +1,14 @@
 # Corral
 
-Herdr's main window with a Kanban board one key away: the spaces and agents
-sidebar stays on the left, and the work area flips between your terminals and
-the Corral Board, where your tasks hold their agents.
+A Kanban board for your coding agents. Each task card holds the Claude Code,
+Codex or other agents you started for it, with their live status (working,
+done, needs you), a Claude prompt-cache countdown and the PR links they
+printed; agents you start anywhere else wait in an Inbox. Drag tasks through
+your own columns, launch an agent for a task (optionally in a new git
+worktree) or resume an ended Claude or Codex conversation, here or on another
+machine; every action also has a key. The board fills Herdr's work area in
+place of your terminals, and `cmd-shift-k` (or the Board button in the top
+bar) flips between the two.
 
 ![Corral](preview.png)
 
