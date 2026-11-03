@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.2`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.3`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.2`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.3`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -178,7 +178,7 @@ One full-size view on `canvas`, top to bottom:
   | `/` | filter; `esc` clears it |
   | `?` | key help (again: closes) |
 
-- **Opening the board.** In the corral layout: the floating pill, or
+- **Opening the board.** In the corral layout: the Board button in the top bar, or
   `cmd-shift-k`, flips the work area between terminals and board; the board
   takes the keyboard when it shows, the terminal pane gets it back when it
   hides. Elsewhere: `cmd-shift-k` opens the board as a window (90%×85%) and
@@ -196,8 +196,9 @@ One full-size view on `canvas`, top to bottom:
   "window", "width": 0.9, "height": 0.85 } }`, `jsconfig.json` (`checkJs`).
   Plain JavaScript, no npm packages, no bundler.
 - **Props:** none → the board; `{ role: "pill" }` → the corral layout's
-  floating toggle ("Board" + Inbox count, or "Terminals" while the board
-  shows), which also receives `corral-board.toggle`.
+  Board button in the top bar ("Board" + Inbox count, or "Terminals" while
+  the board shows), which also receives `corral-board.toggle`: it is always
+  on screen, and Herdr delivers a mod's commands only to copies on screen.
 - **State:** `~/.config/herdr-app/corral/board.json`, read with
   `readTextFile`, written with `writeTextFile(path, text, expected)` (refused
   when stale: reload, re-apply, retry up to 3 times), watched with
@@ -302,8 +303,8 @@ reload again.
   `render` either. The board starts one long-lived task in `init` and wakes
   it from `render` to take the keyboard.
 - **A hidden stack child doesn't render.** A request made while it's hidden
-  (the flip's focus request) must be repeated after it shows: the pill asks
-  again 120ms after flipping.
+  (the flip's focus request) must be repeated after it shows: the Board button
+  asks again 120ms after flipping.
 - **`pane.focus` then `focused()`:** `focused()` hasn't caught up yet; refocusing
   "the focused pane" right after a `pane.focus` undoes it.
 - **A text box that disappears while it has the keyboard sends no `blur`**

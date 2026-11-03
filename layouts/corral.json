@@ -76,15 +76,39 @@
       "type": "column",
       "children": [
         {
-          "id": "tabs",
-          "type": "block",
-          "content": {
-            "mod": "tabs"
-          },
+          "id": "top",
+          "type": "row",
+          "resizable": false,
           "size": {
             "px": 42
           },
-          "window_drag": true
+          "children": [
+            {
+              "id": "tabs",
+              "type": "block",
+              "content": {
+                "mod": "tabs"
+              },
+              "size": {
+                "weight": 1
+              },
+              "window_drag": true
+            },
+            {
+              "id": "corral-toggle",
+              "type": "block",
+              "content": {
+                "mod": "corral-board",
+                "props": {
+                  "role": "pill"
+                }
+              },
+              "size": {
+                "px": 112
+              },
+              "window_drag": true
+            }
+          ]
         },
         {
           "id": "work-body",
@@ -181,20 +205,7 @@
           }
         }
       ],
-      "resizable": false,
-      "floating": [
-        {
-          "id": "corral-pill",
-          "content": {
-            "mod": "corral-board",
-            "props": {
-              "role": "pill"
-            }
-          },
-          "edge": "bottom",
-          "align": "end"
-        }
-      ]
+      "resizable": false
     }
   ],
   "background": "canvas",

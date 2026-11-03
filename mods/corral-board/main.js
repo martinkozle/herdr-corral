@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.2";
+const BUILD = "0.1.3";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -1302,12 +1302,17 @@ export default class Board extends View {
   pill(t) {
     const showing = find(layout(), "corral-view")?.active === "board";
     const count = src.agents().filter((a) => !src.terminals().find((x) => x.address === a.address)?.labels?.["corral.task"]).length;
-    return h_flex().id("pill").h(26).px(10).gap(6).items_center().text_size(12).cursor_pointer()
-      .text_color(showing ? t.accent : t.foreground)
-      .on_click((_e, cx) => { flip(); askFocusSoon(cx); cx.notify(); })
-      .child(svg(`${ICONS}/layers.svg`).size(13))
-      .child(showing ? "Terminals" : "Board")
-      .when(!showing && count > 0, (el) => el.child(div().text_color(t.dim).child(String(count))));
+    // A button at the top bar's right end, drawn like the tabs bar's Files and Changes (which it sits beside):
+    // the bar's own background and bottom border around it.
+    return h_flex().size_full().pr(10).items_center().justify_end().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(h_flex().id("pill").h(26).px(8).gap(5).flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
+        .bg(showing ? t.selected : t.chrome).text_color(showing ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
+        .tooltip("cmd-shift-k")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { flip(); askFocusSoon(cx); cx.notify(); })
+        .child(svg(`${ICONS}/layers.svg`).size(14))
+        .child(showing ? "Terminals" : "Board")
+        .when(!showing && count > 0, (el) => el.child(div().text_color(t.dim).child(String(count)))));
   }
 
   render(cx) {
