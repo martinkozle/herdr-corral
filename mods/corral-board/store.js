@@ -61,7 +61,7 @@ export class Store {
   // auto: the board's own bookkeeping (agents rejoining, sessions and links recorded), not something the
   // person did: it isn't an undo step; it's applied to the undo history too, so undo keeps it.
   async change(fn, { auto = false } = {}) {
-    if (this.readOnly) return;
+    if (this.readOnly || this.demo) return; // demo: a screenshot board, never saved
     for (let attempt = 0; attempt < 3; attempt++) {
       const next = JSON.parse(JSON.stringify(this.board));
       fn(next);
@@ -105,7 +105,7 @@ export class Store {
 
   async step(from, to, have, want) {
     const last = from.pop();
-    if (!last || this.readOnly) return null;
+    if (!last || this.readOnly || this.demo) return null;
     await this.load();
     if (this.text !== last[have]) { this.history = []; this.future = []; return "changed"; }
     const was = this.board;

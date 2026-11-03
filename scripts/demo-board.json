@@ -1,0 +1,282 @@
+{
+ "board": {
+  "schema": 1,
+  "columns": [
+   {
+    "id": "todo",
+    "name": "To do"
+   },
+   {
+    "id": "doing",
+    "name": "In progress"
+   },
+   {
+    "id": "review",
+    "name": "Review"
+   },
+   {
+    "id": "others",
+    "name": "Waiting on others"
+   },
+   {
+    "id": "build",
+    "name": "Waiting on build"
+   },
+   {
+    "id": "parked",
+    "name": "Parked"
+   },
+   {
+    "id": "done",
+    "name": "Done"
+   }
+  ],
+  "tasks": [
+   {
+    "id": "t-rate",
+    "title": "Rate limit the public API",
+    "notes": "Token bucket per API key. Check what the gateway already does first.",
+    "column": "todo",
+    "space": "s-api",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": []
+   },
+   {
+    "id": "t-dark",
+    "title": "Dark mode for the settings page",
+    "notes": "",
+    "column": "todo",
+    "space": "s-web",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": []
+   },
+   {
+    "id": "t-oauth",
+    "title": "Move sign-in to OAuth 2.1",
+    "notes": "",
+    "column": "doing",
+    "space": "s-api",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-oauth",
+      "app": "claude-code",
+      "name": "Move sign-in to OAuth 2.1",
+      "space": "s-api",
+      "started": 1793705693746
+     }
+    ]
+   },
+   {
+    "id": "t-flaky",
+    "title": "Fix the flaky checkout test",
+    "notes": "",
+    "column": "doing",
+    "space": "s-web",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-flaky",
+      "app": "claude-code",
+      "name": "Fix the flaky checkout test",
+      "space": "s-web",
+      "started": 1793705693746,
+      "links": [
+       "https://github.com/acme/web-app/pull/412"
+      ]
+     }
+    ]
+   },
+   {
+    "id": "t-search",
+    "title": "Paginate search results",
+    "notes": "",
+    "column": "review",
+    "space": "s-web",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-search",
+      "app": "codex",
+      "name": "Paginate search results",
+      "space": "s-web",
+      "started": 1793705693746,
+      "links": [
+       "https://github.com/acme/web-app/pull/398",
+       "https://github.com/acme/web-app/pull/405"
+      ]
+     },
+     {
+      "address": "d-search-old",
+      "app": "claude-code",
+      "name": "Search API cursor design",
+      "space": "s-api",
+      "started": 1793705693746,
+      "session": "demo"
+     }
+    ]
+   },
+   {
+    "id": "t-pg",
+    "title": "Upgrade Postgres to 17",
+    "notes": "Waiting on the DBA team for a maintenance window.",
+    "column": "others",
+    "space": "s-infra",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-pg",
+      "app": "claude-code",
+      "name": "Upgrade Postgres to 17",
+      "space": "s-infra",
+      "started": 1793705693746
+     }
+    ]
+   },
+   {
+    "id": "t-rel",
+    "title": "Release 2.4.0",
+    "notes": "",
+    "column": "build",
+    "space": "s-web",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-rel",
+      "app": "codex",
+      "name": "Release 2.4.0",
+      "space": "s-web",
+      "started": 1793705693746
+     }
+    ]
+   },
+   {
+    "id": "t-vec",
+    "title": "Try vector search for docs",
+    "notes": "",
+    "column": "parked",
+    "space": "s-docs",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": [
+     {
+      "address": "d-vec",
+      "app": "claude-code",
+      "name": "Try vector search for docs",
+      "space": "s-docs",
+      "started": 1793705693746,
+      "session": "demo"
+     }
+    ]
+   },
+   {
+    "id": "t-mail",
+    "title": "Onboarding emails",
+    "notes": "",
+    "column": "done",
+    "space": "s-web",
+    "created": 1793604893746,
+    "updated": 1793709293746,
+    "agents": []
+   }
+  ],
+  "archive": [],
+  "prefs": {
+   "confirmDone": true
+  }
+ },
+ "spaces": [
+  {
+   "id": "s-web",
+   "name": "web-app",
+   "color": "#5b8def"
+  },
+  {
+   "id": "s-api",
+   "name": "api",
+   "color": "#e3814f"
+  },
+  {
+   "id": "s-infra",
+   "name": "infra",
+   "color": "#3fae6a"
+  },
+  {
+   "id": "s-docs",
+   "name": "docs",
+   "color": "#8b7cf6"
+  }
+ ],
+ "agents": [
+  {
+   "address": "d-oauth",
+   "task": "t-oauth",
+   "title": "Move sign-in to OAuth 2.1",
+   "app": "claude-code",
+   "space": "s-api",
+   "status": "working",
+   "cache": {
+    "min": 51,
+    "ttl": "1h"
+   }
+  },
+  {
+   "address": "d-flaky",
+   "task": "t-flaky",
+   "title": "Fix the flaky checkout test",
+   "app": "claude-code",
+   "space": "s-web",
+   "status": "done",
+   "cache": {
+    "min": 6,
+    "ttl": "1h"
+   }
+  },
+  {
+   "address": "d-search",
+   "task": "t-search",
+   "title": "Paginate search results",
+   "app": "codex",
+   "space": "s-web",
+   "status": "idle"
+  },
+  {
+   "address": "d-pg",
+   "task": "t-pg",
+   "title": "Upgrade Postgres to 17",
+   "app": "claude-code",
+   "space": "s-infra",
+   "status": "blocked",
+   "cache": {
+    "min": 24,
+    "ttl": "1h"
+   }
+  },
+  {
+   "address": "d-rel",
+   "task": "t-rel",
+   "title": "Release 2.4.0",
+   "app": "codex",
+   "space": "s-web",
+   "status": "working"
+  },
+  {
+   "address": "d-inbox",
+   "title": "Explain the billing module",
+   "app": "claude-code",
+   "space": "s-api",
+   "status": "idle",
+   "cache": {
+    "min": 38,
+    "ttl": "1h"
+   }
+  }
+ ]
+}

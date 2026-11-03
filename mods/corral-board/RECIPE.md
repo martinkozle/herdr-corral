@@ -264,6 +264,19 @@ One full-size view on `canvas`, top to bottom:
   **Commands:** `layout.select`, `pane.focus`. **Programs:** `herdr-app`,
   `hc`, `find`, `tail`, `ls`, `rm`, `mkdir`. No network.
 
+## Demo mode
+
+For screenshots (`preview.png`) without your own tasks. With
+`<appHome>/corral/demo.json` present when the board starts, it shows that
+file instead: `{ board, spaces: [{ id, name, color }], agents: [{ address,
+task?, title, app, space, status, cache?: { min, ttl } }] }`. Agents with a
+`task` sit in it as live rows, the others in the Inbox; cache badges count
+down from `min`. Program icons are borrowed from a running agent of the
+same app. Nothing is saved, labelled or polled, and the real `board.json`
+isn't read. `scripts/demo-board.json` is the one used for the preview: copy
+it to `corral/demo.json`, reload the mod, screenshot, delete the file,
+reload again.
+
 ## Watch out
 
 - `node --check main.js` passed a file missing a `)` that Herdr's parser

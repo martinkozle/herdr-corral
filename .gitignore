@@ -1,3 +1,6 @@
 # Written by Herdr into a linked mod folder; regenerated on every start.
 gpui-kit.d.ts
 .DS_Store
+
+# Local handoff notes (personal; not published)
+STATE.md

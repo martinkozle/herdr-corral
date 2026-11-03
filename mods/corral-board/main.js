@@ -3,7 +3,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared } from "herdr";
+import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared, readTextFile } from "herdr";
 import { Store, newId, DIR } from "./store.js";
 import { Cache, warmth, warmthColor, prLinks, prLabel } from "./cache.js";
 import { Codex } from "./codex.js";
@@ -14,7 +14,32 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1";
+const BUILD = "0.1.2-dev.1";
+
+// Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
+// agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
+let DEMO = null;
+const src = {
+  agents: () => (DEMO ? DEMO.agents : agents()),
+  terminals: () => (DEMO ? DEMO.terms : terminals()),
+  spaces: () => (DEMO ? DEMO.spaces : spaces()),
+};
+
+// demo.json: { board, spaces: [{ id, name, color }], agents: [{ address, task?, title, app, space, status,
+// cache?: { min, ttl } }] }. Program icons are borrowed from a real agent of the same app, when one runs.
+function loadDemo(d) {
+  const real = agents();
+  const now = Date.now();
+  const space = (id) => d.spaces.find((x) => x.id === id);
+  DEMO = {
+    spaces: d.spaces,
+    agents: d.agents.map((a) => ({ address: a.address, title: a.title, status: a.status, app: a.app, space: a.space, space_name: space(a.space)?.name ?? "",
+      program: real.find((x) => x.app === a.app && x.program)?.program ?? { name: a.app } })),
+    terms: d.agents.map((a) => ({ address: a.address, state: "live", report: { app: a.app }, labels: a.task ? { "corral.task": a.task } : {}, foreground: { pid: 1 },
+      demo: a.cache ? { expires: now + a.cache.min * 60000, ttl: a.cache.ttl ?? "1h", waitingFor: null } : null })),
+  };
+  return d.board;
+}
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -54,7 +79,7 @@ const alpha = (c, a) => (c ?? "#000000").slice(0, 7) + a;
 const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 function spaceTile(t, space, size = 14) {
   if (!space) return div();
-  const color = shared("space.colors")?.[space.id] ?? "ansi6";
+  const color = space.color ?? shared("space.colors")?.[space.id] ?? "ansi6";
   const fill = color.startsWith("#") ? color : (MARK[color] ?? t[color]);
   return h_flex().size(size).flex_none().rounded(size * 0.28).bg(fill).items_center().justify_center()
     .text_size(size * 0.6).font_bold().text_color("#ffffff").child([...space.name][0]?.toUpperCase() ?? "?");
@@ -116,8 +141,20 @@ export default class Board extends View {
     // command until Herdr restarts). Enter variants arrive as the textarea's "submit" event instead.
     this.filterState = this.input("Filter tasks", "", (s) => { this.filter = s.value().toLowerCase(); });
     this.filter = "";
+    // The 30s tick waits for this: in demo mode it must never touch the real board.
+    this.ready = new Promise((resolve) => { this.isReady = resolve; });
     cx.spawn(async (cx) => {
+      const demo = await readTextFile(`${DIR()}/demo.json`).catch(() => null);
+      if (demo) {
+        this.store.board = loadDemo(JSON.parse(demo));
+        this.store.demo = true;
+        this.cache.info = (term) => term?.demo ?? null;
+        this.isReady();
+        cx.notify();
+        return;
+      }
       await this.store.load();
+      this.isReady();
       await this.adopt();
       cx.notify();
       for (;;) {
@@ -135,8 +172,10 @@ export default class Board extends View {
       }
     });
     const tick = (cx) => cx.spawn(async (cx) => {
-      await this.cache.refresh(terminals(), cx, () => {});
-      await this.codex.refresh(terminals(), new Set(machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name)));
+      await this.ready;
+      if (DEMO) return;
+      await this.cache.refresh(src.terminals(), cx, () => {});
+      await this.codex.refresh(src.terminals(), new Set(machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name)));
       await this.adopt();
       await this.recordSessions();
       await this.scanScreens();
@@ -177,7 +216,7 @@ export default class Board extends View {
   // Live terminals labelled for a task rejoin it, even if the file lost them.
   async adopt() {
     const missing = [];
-    for (const t of terminals()) {
+    for (const t of src.terminals()) {
       const id = t.labels?.["corral.task"];
       const task = id && this.task(id);
       // Only terminals running an agent rejoin: a shell left after its agent exited is not one.
@@ -195,7 +234,7 @@ export default class Board extends View {
 
   // Remembers each live Claude or Codex agent's session and folder on its row: what resuming needs later.
   async recordSessions() {
-    const terms = new Map(terminals().map((x) => [x.address, x]));
+    const terms = new Map(src.terminals().map((x) => [x.address, x]));
     const ups = [];
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
@@ -219,7 +258,7 @@ export default class Board extends View {
   // PR links an agent printed: Claude's come from its transcript (cache.js), other agents' from their
   // screen (a link must be on screen at a 30s tick to be seen; a wrapped one may be missed).
   async scanScreens() {
-    const terms = new Map(terminals().map((x) => [x.address, x]));
+    const terms = new Map(src.terminals().map((x) => [x.address, x]));
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
       if (term?.state !== "live" || !term.report?.app || term.report.app === "claude-code") continue;
@@ -233,7 +272,7 @@ export default class Board extends View {
 
   // Keeps the last three PR links of each agent on its row, so they stay after the agent ends.
   async recordLinks() {
-    const terms = new Map(terminals().map((x) => [x.address, x]));
+    const terms = new Map(src.terminals().map((x) => [x.address, x]));
     const ups = [];
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
@@ -296,7 +335,7 @@ export default class Board extends View {
       const owner = (b) => { const m = new Map(); for (const t of b.tasks) for (const a of t.agents) m.set(a.address, t.id); return m; };
       const was = owner(r.from);
       const now = owner(r.to);
-      const live = new Set(terminals().map((x) => x.address));
+      const live = new Set(src.terminals().map((x) => x.address));
       for (const addr of new Set([...was.keys(), ...now.keys()])) if (was.get(addr) !== now.get(addr) && live.has(addr)) this.label(addr, now.get(addr) ?? null);
       cx.notify();
     });
@@ -330,7 +369,7 @@ export default class Board extends View {
     const task = this.task(taskId);
     // The conversation lives on the machine the agent ran on: resume there, never on another machine.
     const m = machineOf(row.address);
-    const here = spaces().filter((s) => (s.machine ?? null) === m);
+    const here = src.spaces().filter((s) => (s.machine ?? null) === m);
     const space = here.find((s) => s.id === (row.space ?? task?.space)) ?? here.find((s) => s.active) ?? here[0];
     if (!task || !row.session) return;
     if (!space) { this.bar = { kind: "note", text: `Couldn't resume: no space open on ${m ?? "this computer"}` }; cx.notify(); return; }
@@ -412,7 +451,7 @@ export default class Board extends View {
   }
 
   // A label value of "" removes the label.
-  label(address, taskId) { hc(["label", address, `corral.task=${taskId ?? ""}`]).catch(() => {}); }
+  label(address, taskId) { if (DEMO) return; hc(["label", address, `corral.task=${taskId ?? ""}`]).catch(() => {}); }
 
   drop(cx) {
     const { press, over } = this;
@@ -422,7 +461,7 @@ export default class Board extends View {
       return;
     }
     // An agent: from the Inbox, or a row of a task (press.from).
-    const a = agents().find((x) => x.address === press.id);
+    const a = src.agents().find((x) => x.address === press.id);
     const from = press.from ?? null;
     const unhook = (b) => { const s = from && b.tasks.find((t) => t.id === from); if (s) s.agents = s.agents.filter((r) => r.address !== press.id); };
     if (over.task) {
@@ -442,7 +481,7 @@ export default class Board extends View {
 
   async doLaunch(task, cx) {
     const L = this.launch;
-    const space = spaces().find((s) => s.id === L.space);
+    const space = src.spaces().find((s) => s.id === L.space);
     let argv;
     if (L.agent === CUSTOM) {
       const cmd = L.custom.value().trim();
@@ -519,7 +558,7 @@ export default class Board extends View {
       this.notes.on("blur", (_e, cx) => { const v = this.notes.value(); if (v !== (this.task(task.id)?.notes ?? "")) this.change((b) => { b.tasks.find((t) => t.id === task.id).notes = v; }, cx); });
       return;
     }
-    const space = task.space ?? spaces().find((s) => s.active)?.id ?? spaces()[0]?.id;
+    const space = task.space ?? src.spaces().find((s) => s.active)?.id ?? src.spaces()[0]?.id;
     this.launch = {
       space, agent: null, busy: false, error: null,
       msg: this.input("First message (optional)", "", null, true),
@@ -535,7 +574,7 @@ export default class Board extends View {
   }
 
   loadAgents(spaceId, cx) {
-    const m = spaces().find((s) => s.id === spaceId)?.machine ?? "";
+    const m = src.spaces().find((s) => s.id === spaceId)?.machine ?? "";
     if (this.known[m]) { this.launch.agent ??= this.known[m].find((k) => k.installed)?.key; return; }
     cx.spawn(async (cx) => {
       this.known[m] = await knownAgents({ on: m || null });
@@ -574,7 +613,7 @@ export default class Board extends View {
     if (r.kind === "task") this.change((b) => { b.tasks.find((t) => t.id === r.id).title = v; }, cx);
     if (r.kind === "column") this.change((b) => { b.columns.find((c) => c.id === r.id).name = v; }, cx);
     if (r.kind === "inbox") {
-      const a = agents().find((x) => x.address === r.id);
+      const a = src.agents().find((x) => x.address === r.id);
       if (!a) return;
       const id = newId("t");
       this.label(a.address, id);
@@ -708,7 +747,7 @@ export default class Board extends View {
       if (k === "enter") {
         const at = this.attach;
         this.attach = null;
-        const a = agents().find((x) => x.address === at.address);
+        const a = src.agents().find((x) => x.address === at.address);
         if (task && a) {
           this.label(a.address, task.id);
           this.change((b) => { const tk = b.tasks.find((x) => x.id === task.id); if (tk && !tk.agents.some((r) => r.address === a.address)) tk.agents.push(this.rowFrom(a)); }, cx);
@@ -845,7 +884,7 @@ export default class Board extends View {
     const live = st.state === "live";
     const resumable = st.state === "ended" && !!row.session;
     const a = st.agent;
-    const sp = spaces().find((s) => s.id === (a?.space ?? row.space));
+    const sp = src.spaces().find((s) => s.id === (a?.space ?? row.space));
     const pic = icon(a?.program, 14, t.foreground);
     // Each agent is its own faint block (live ones tinted), so neighbours read apart without inner borders.
     return h_flex().id(`ar-${row.address}`).gap(6).px(4).py(4).rounded(6).items_start().text_size(12)
@@ -996,7 +1035,7 @@ export default class Board extends View {
         .child(this.rename?.kind === "inbox" && this.rename.id === a.address ? this.field(t, this.rename.state) : div().text_size(13).text_color(t.foreground).child(agentName(a)))
         .child(h_flex().gap(6).items_center().text_size(11).text_color(t.dim)
           .when(!!icon(a.program, 13, t.foreground), (el) => el.child(icon(a.program, 13, t.foreground)))
-          .child(spaceTile(t, spaces().find((s) => s.id === a.space), 13))
+          .child(spaceTile(t, src.spaces().find((s) => s.id === a.space), 13))
           .child(div().flex_1().truncate().child(a.space_name ?? ""))
           .child(this.cacheBadge(t, term, now) ?? div())
           .child(this.status(t, a.status, this.cache.info(term)?.waitingFor) ?? div()));
@@ -1102,8 +1141,8 @@ export default class Board extends View {
 
   details(t, task) {
     const L = this.launch;
-    const sp = spaces().find((s) => s.id === L?.space);
-    const spaceOpts = spaces().map((s) => ({ key: s.id, label: s.machine ? `${s.machine} · ${s.name}` : s.name }));
+    const sp = src.spaces().find((s) => s.id === L?.space);
+    const spaceOpts = src.spaces().map((s) => ({ key: s.id, label: s.machine ? `${s.machine} · ${s.name}` : s.name }));
     const agentOpts = [...(this.known[sp?.machine ?? ""] ?? []).filter((k) => k.installed).map((k) => ({ key: k.key, label: k.name })), { key: CUSTOM, label: "Custom command…" }];
     const info = this.openMode === "info";
     const label = (s) => div().text_size(11).text_color(t.dim).child(s);
@@ -1246,7 +1285,7 @@ export default class Board extends View {
       .child(div().flex_none().text_size(11).text_color(t.dim).child("Next up"))
       .children(waiting.map(({ a }) => {
         const term = this.terms.get(a.address);
-        const sp = spaces().find((x) => x.id === a.space);
+        const sp = src.spaces().find((x) => x.id === a.space);
         const label = taskOf(a.address) ?? agentName(a);
         return h_flex().id(`nu-${a.address}`).flex_none().h(24).px(7).gap(6).items_center().rounded(6).cursor_pointer()
           .bg(alpha(t.foreground, "0a")).hover((el) => el.bg(t.hover))
@@ -1262,7 +1301,7 @@ export default class Board extends View {
 
   pill(t) {
     const showing = find(layout(), "corral-view")?.active === "board";
-    const count = agents().filter((a) => !terminals().find((x) => x.address === a.address)?.labels?.["corral.task"]).length;
+    const count = src.agents().filter((a) => !src.terminals().find((x) => x.address === a.address)?.labels?.["corral.task"]).length;
     return h_flex().id("pill").h(26).px(10).gap(6).items_center().text_size(12).cursor_pointer()
       .text_color(showing ? t.accent : t.foreground)
       .on_click((_e, cx) => { flip(); askFocusSoon(cx); cx.notify(); })
@@ -1275,8 +1314,8 @@ export default class Board extends View {
     const t = theme();
     if (this.role === "pill") return this.pill(t);
     const now = Date.now();
-    this.terms = new Map(terminals().map((x) => [x.address, x]));
-    this.ags = new Map(agents().map((a) => [a.address, a]));
+    this.terms = new Map(src.terminals().map((x) => [x.address, x]));
+    this.ags = new Map(src.agents().map((a) => [a.address, a]));
     const cols = this.shown(this.terms, this.ags).map((c, index) => ({ ...c, index }));
     this.cols = cols;
     // A task moved by key stays selected once it shows up in its new column.
