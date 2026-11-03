@@ -20,8 +20,9 @@ Herdr (main), unchanged, plus:
 
 - A **Board button** at the top bar's right end, beside Files and Changes
   and drawn like them (26px, 12px text, `muted` on `chrome`, `hover` on
-  hover): a layers icon and "Board" with the Inbox count in `dim`, or
-  "Terminals" on `selected` while the board shows.
+  hover): a layers icon and "Board", or "Terminals" on `selected` while the
+  board shows; a badge in the blocked color (15% fill) counting agents that
+  need you or are done and unseen, then the Inbox count in `dim`.
 - The work area (left of the Files / Changes panel) is a stack of two views:
   the active tab, as in main, and the Corral Board
   (`mods/corral-board/RECIPE.md`).

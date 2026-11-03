@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.3`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.4`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.3`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.4`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -125,6 +125,22 @@ One full-size view on `canvas`, top to bottom:
   `j` `k` select, `r`/`enter` or "Restore" puts one back at the end of its
   column (the first column if that's gone), `esc` closes. Its agents' labels
   were never cleared, so live ones rejoin it.
+- **Waiting time:** a live agent that isn't working shows how long it has
+  waited, as plain words after its space (never a pill, so it isn't read as
+  the cache badge): "· waiting 6m" (needs you, in the blocked color, or done
+  and not looked at, `dim`). Idle agents show none: it comes from the
+  terminal's `status_ms`, the last change of the agent's own status, and
+  looking at a done agent (done → idle, an app-side "seen") doesn't move it,
+  so "idle 3h" would mean "finished 3h ago". Inbox cards show it after the
+  space name.
+- **Space chips:** under the header (and Next up), a row: `s` hint, "All n",
+  then one chip per space with something on the board (sidebar order): its
+  tile, name, count of tasks and Inbox agents, and a blocked-color dot when
+  an agent there waits for you. A click filters the board to that space (a
+  task counts for its own space and each of its agents'), again clears;
+  `s` / `S` step through the chips, `esc` clears. Shown with 2+ spaces.
+  Chips and counts come from the unfiltered board and Inbox, so filtering
+  never hides a chip.
 - **Status outlines:** a live agent row (and an Inbox card) waiting on you
   is outlined: done (finished, not looked at yet) in the done color, needs
   you in the blocked color, idle (finished and seen) in a faint done color.
@@ -148,7 +164,9 @@ One full-size view on `canvas`, top to bottom:
   (GitHub, GitLab, Bitbucket Cloud and Server/Data Center) show under its
   name as chips ("PR #12", "MR !7"), newest first; a click (or `o` while the
   row is picked) opens it in the browser. They stay on the row after the
-  agent ends.
+  agent ends. The chips wrap from one left edge (under the space tile), and
+  the faint `o` hint follows the last chip, so a second line of chips starts
+  where the first did.
 - **Filter:** shows tasks whose title, notes or agent names contain the text,
   and Inbox entries whose name does.
 - **Keys** (only while the board has the keyboard; text fields take every key):
@@ -175,6 +193,7 @@ One full-size view on `canvas`, top to bottom:
   | `u` | undo |
   | `U` / `ctrl-r` | redo |
   | `A` | the Archive view |
+  | `s` / `S` | filter by space: next / previous chip (through All) |
   | `/` | filter; `esc` clears it |
   | `?` | key help (again: closes) |
 
@@ -196,8 +215,9 @@ One full-size view on `canvas`, top to bottom:
   "window", "width": 0.9, "height": 0.85 } }`, `jsconfig.json` (`checkJs`).
   Plain JavaScript, no npm packages, no bundler.
 - **Props:** none → the board; `{ role: "pill" }` → the corral layout's
-  Board button in the top bar ("Board" + Inbox count, or "Terminals" while
-  the board shows), which also receives `corral-board.toggle`: it is always
+  Board button in the top bar ("Board", or "Terminals" while the board
+  shows; a blocked-color badge counting agents that need you or are done
+  and unseen; the Inbox count in `dim`), which also receives `corral-board.toggle`: it is always
   on screen, and Herdr delivers a mod's commands only to copies on screen.
 - **State:** `~/.config/herdr-app/corral/board.json`, read with
   `readTextFile`, written with `writeTextFile(path, text, expected)` (refused

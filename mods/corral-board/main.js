@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.3";
+const BUILD = "0.1.4";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -36,6 +36,7 @@ function loadDemo(d) {
     agents: d.agents.map((a) => ({ address: a.address, title: a.title, status: a.status, app: a.app, space: a.space, space_name: space(a.space)?.name ?? "",
       program: real.find((x) => x.app === a.app && x.program)?.program ?? { name: a.app } })),
     terms: d.agents.map((a) => ({ address: a.address, state: "live", report: { app: a.app }, labels: a.task ? { "corral.task": a.task } : {}, foreground: { pid: 1 },
+      status_ms: now - (a.waited ?? 3) * 60000,
       demo: a.cache ? { expires: now + a.cache.min * 60000, ttl: a.cache.ttl ?? "1h", waitingFor: null } : null })),
   };
   return d.board;
@@ -98,6 +99,22 @@ function placeOf(s) {
   return panes().find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s?.folder || null;
 }
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+// How long ago, short: "<1m", "6m", "2h", "3d".
+function ago(ms, now) {
+  const m = Math.floor((now - ms) / 60000);
+  return m < 1 ? "<1m" : m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+}
+
+// Since when an agent has been waiting on you, as plain words (never a pill, so it can't be read as the
+// cache badge): "waiting 6m", for needs you or done and not looked at. Null otherwise: Herdr's status_ms is
+// when the agent's own status last changed, and looking at a done agent (done → idle) doesn't move it, so
+// an idle agent's time would be when it finished, not how long it has sat seen.
+function waited(status, term, now) {
+  const at = term?.status_ms;
+  if (!at || (status !== "blocked" && status !== "done")) return null;
+  return `waiting ${ago(at, now)}`;
+}
+
 const NAV = ["h", "l", "j", "k", "g", "G", "shift-g", "left", "right", "up", "down"];
 
 // What a person calls an agent: its own title, unless that only names the program.
@@ -408,15 +425,53 @@ export default class Board extends View {
     return a ? { state: "live", agent: a, term } : { state: "ended" };
   }
 
+  // The spaces a task belongs to: its own, and each of its agents' (where it runs now, else where it ran).
+  spacesOf(task, ags) {
+    const out = new Set(task.space ? [task.space] : []);
+    for (const r of task.agents) { const s = ags.get(r.address)?.space ?? r.space; if (s) out.add(s); }
+    return out;
+  }
+
+  // The space chips: each space with something on the board, in the sidebar's order, with how many tasks
+  // (and Inbox agents) it has and whether an agent there waits for you. Only with two spaces or more.
+  spaceChips(t) {
+    const ags = this.ags;
+    const count = new Map();
+    const add = (id) => count.set(id, (count.get(id) ?? 0) + 1);
+    for (const tk of this.board.tasks) for (const id of this.spacesOf(tk, ags)) add(id);
+    for (const a of this.inboxAll ?? []) add(a.space);
+    const list = src.spaces().filter((s) => count.has(s.id));
+    if (list.length < 2 && !this.spaceFilter) return null;
+    const waiting = new Set([...ags.values()].filter((a) => a.status === "blocked" || a.status === "done").map((a) => a.space));
+    const chip = (id, label, n, sp) => {
+      const on = this.spaceFilter === id;
+      return h_flex().id(`sf-${id ?? "all"}`).flex_none().h(22).px(7).gap(5).items_center().rounded(6).cursor_pointer().text_size(11.5)
+        .bg(on ? t.selected : alpha(t.foreground, "0a")).text_color(on ? t.foreground : t.muted).hover((el) => el.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); this.spaceFilter = on ? null : id; this.focus.focus(); cx.notify(); })
+        .when(!!sp, (el) => el.child(spaceTile(t, sp, 12)))
+        .child(label)
+        .child(div().text_color(t.dim).child(String(n)))
+        .when(!!id && waiting.has(id), (el) => el.child(div().size(6).rounded(3).bg(t.blocked)));
+    };
+    return h_flex().id("spacechips").flex_none().h(34).px(14).gap(6).items_center().border_b(1).border_color(t.border).overflow_hidden()
+      .child(this.kbd(t, "s"))
+      .child(chip(null, "All", this.board.tasks.length + (this.inboxAll?.length ?? 0), null))
+      .children(list.map((s) => chip(s.id, s.name, count.get(s.id), s)));
+  }
+
   // Columns as shown: Inbox first (agents in no task), then the board's, filtered.
   shown(terms, ags) {
     const claimed = new Set();
     for (const t of this.board.tasks) for (const r of t.agents) if (this.rowState(t, r, terms, ags).state !== "ended") claimed.add(r.address);
     const inbox = [...ags.values()].filter((a) => !claimed.has(a.address) && !terms.get(a.address)?.parent);
+    this.inboxAll = inbox; // before any filter: the space chips count from it
     const f = this.filter;
-    const match = (t) => !f || `${t.title}\n${t.notes ?? ""}\n${t.agents.map((a) => a.name).join("\n")}`.toLowerCase().includes(f);
+    const sf = this.spaceFilter;
+    const match = (t) => (!f || `${t.title}\n${t.notes ?? ""}\n${t.agents.map((a) => a.name).join("\n")}`.toLowerCase().includes(f))
+      && (!sf || this.spacesOf(t, ags).has(sf));
     return [
-      { id: INBOX, name: "Inbox", items: inbox.filter((a) => !f || agentName(a).toLowerCase().includes(f)).map((a) => ({ kind: "inbox", id: a.address, agent: a })) },
+      { id: INBOX, name: "Inbox", items: inbox.filter((a) => (!f || agentName(a).toLowerCase().includes(f)) && (!sf || a.space === sf)).map((a) => ({ kind: "inbox", id: a.address, agent: a })) },
       ...this.board.columns.map((c) => ({ id: c.id, name: c.name, items: this.board.tasks.filter((t) => t.column === c.id && match(t)).map((t) => ({ kind: "task", id: t.id, task: t })) })),
     ];
   }
@@ -813,7 +868,7 @@ export default class Board extends View {
         if (task && task.agents.length) this.pickAgent = 0;
         else if (item?.kind === "inbox") this.goTo(item.agent);
         break;
-      case "escape": this.open = null; this.launch = null; this.filterState.set_value(""); this.filter = ""; break;
+      case "escape": this.open = null; this.launch = null; this.filterState.set_value(""); this.filter = ""; this.spaceFilter = null; break;
       case "a": if (task) this.openTask(task, cx, "launch"); break;
       case "i": if (task) this.startNotes(task); break;
       case "x": if (task) this.shelve(task, cx); break;
@@ -827,6 +882,13 @@ export default class Board extends View {
         break;
       case "X": case "shift-x": this.ask(`Archive every task in ${this.doneColumn().name}?`, (cx) => this.clearDone(cx)); break;
       case "/": this.filterState.focus(); break;
+      case "s": case "S": case "shift-s": {
+        // The space chips, in turn: s forward, S back, through "All".
+        const ids = [null, ...src.spaces().map((x) => x.id).filter((id) => this.board.tasks.some((tk) => this.spacesOf(tk, this.ags).has(id)) || (this.inboxAll ?? []).some((a) => a.space === id))];
+        const at = Math.max(0, ids.indexOf(this.spaceFilter));
+        this.spaceFilter = ids[(at + (k === "s" ? 1 : ids.length - 1)) % ids.length];
+        break;
+      }
       case "?": case "shift-/": if (!helpWasOpen) this.bar = { kind: "help" }; break;
       default: {
         const n = parseInt(k, 10);
@@ -916,16 +978,19 @@ export default class Board extends View {
         .child(div().text_color(live ? t.foreground : t.dim).child(live ? agentName(a) : (row.name || this.task(taskId)?.title || row.address)))
         .child(h_flex().gap(5).items_center().min_w(0)
           .when(!!sp, (el) => el.child(spaceTile(t, sp, 13)))
-          .child(div().truncate().text_size(10.5).text_color(t.dim).child(sp?.name ?? "")))
+          .child(div().truncate().text_size(10.5).text_color(t.dim).child(sp?.name ?? ""))
+          .when(live && !!waited(a.status, st.term, now), (el) => el.child(div().flex_none().text_size(10.5)
+            .text_color(a.status === "blocked" ? t.blocked : t.dim).child(`· ${waited(a.status, st.term, now)}`))))
         // PR links it printed, newest first; o opens the newest while the row is picked.
+        // The chips wrap under each other from the same left edge (the space tile's); the o hint follows the last.
         .when(!!row.links?.length, (el) => el.child(h_flex().gap(4).pt(2).flex_wrap().items_center()
-          .child(this.kbd(t, "o", picked))
           .children([...row.links].reverse().map((u, i) => div().id(`pr-${row.address}-${i}`).px(5).h(16).rounded(4).flex().items_center()
             .text_size(10.5).font_semibold().text_color(t.accent).bg(alpha(t.accent, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
             .tooltip(u)
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => { cx.stop_propagation(); openUrl(u); })
-            .child(prLabel(u)))))))
+            .child(prLabel(u))))
+          .child(this.kbd(t, "o", picked)))))
       // Status on top, cache time under it, right-aligned together.
       .child(v_flex().flex_none().gap(2).items_end()
         .child(h_flex().h(16).items_center()
@@ -1036,7 +1101,7 @@ export default class Board extends View {
         .child(h_flex().gap(6).items_center().text_size(11).text_color(t.dim)
           .when(!!icon(a.program, 13, t.foreground), (el) => el.child(icon(a.program, 13, t.foreground)))
           .child(spaceTile(t, src.spaces().find((s) => s.id === a.space), 13))
-          .child(div().flex_1().truncate().child(a.space_name ?? ""))
+          .child(div().flex_1().truncate().child(`${a.space_name ?? ""}${waited(a.status, term, now) ? ` · ${waited(a.status, term, now)}` : ""}`))
           .child(this.cacheBadge(t, term, now) ?? div())
           .child(this.status(t, a.status, this.cache.info(term)?.waitingFor) ?? div()));
     }
@@ -1259,7 +1324,7 @@ export default class Board extends View {
     if (this.attach) return box.child(`Add "${this.attach.name}" to a task: move to it (h j k l), enter adds it`).child(div().flex_1())
       .child(this.chip(t, "attach-x", "Cancel (esc)", false, () => { this.attach = null; }));
     if (b.kind === "note") return box.child(b.text).child(div().flex_1()).child(this.chip(t, "bar-ok", "OK", false, () => { this.bar = null; }));
-    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · o its PR · a launch · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · u undo · U redo · A archive view · t add an Inbox agent to a task · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
+    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · o its PR · a launch · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · u undo · U redo · A archive view · t add an Inbox agent to a task · s / S space · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
     if (b.kind === "move") return box.child("Move to:").children((this.cols ?? []).slice(1).map((c, i) => div().text_color(t.muted).child(`${i + 1} ${c.name}`)));
     return box.child(b.text)
       .when(!!b.never, (el) => el.child(this.chip(t, "bar-never", `${b.neverOn ? "☑" : "☐"} Don't ask again`, false, () => { b.neverOn = !b.neverOn; })))
@@ -1302,6 +1367,8 @@ export default class Board extends View {
   pill(t) {
     const showing = find(layout(), "corral-view")?.active === "board";
     const count = src.agents().filter((a) => !src.terminals().find((x) => x.address === a.address)?.labels?.["corral.task"]).length;
+    // Agents waiting for you (needs you, or done and not looked at), as a badge in the needs-you color.
+    const needs = src.agents().filter((a) => a.status === "blocked" || a.status === "done").length;
     // A button at the top bar's right end, drawn like the tabs bar's Files and Changes (which it sits beside):
     // the bar's own background and bottom border around it.
     return h_flex().size_full().pr(10).items_center().justify_end().bg(t.chrome).border_b(1).border_color(t.border)
@@ -1312,7 +1379,9 @@ export default class Board extends View {
         .on_click((_e, cx) => { flip(); askFocusSoon(cx); cx.notify(); })
         .child(svg(`${ICONS}/layers.svg`).size(14))
         .child(showing ? "Terminals" : "Board")
-        .when(!showing && count > 0, (el) => el.child(div().text_color(t.dim).child(String(count)))));
+        .when(needs > 0, (el) => el.child(div().px(5).h(16).rounded(4).flex().items_center().bg(alpha(t.blocked, "33")).text_color(t.blocked)
+          .text_size(10.5).font_semibold().id("needs").tooltip(`${needs} waiting for you`).child(String(needs))))
+        .when(!showing && count > 0, (el) => el.child(div().text_color(t.dim).id("inboxn").tooltip(`${count} in the Inbox`).child(String(count)))));
   }
 
   render(cx) {
@@ -1390,6 +1459,7 @@ export default class Board extends View {
           ? this.chip(t, "close", "Close", false, () => closeOverlay(props().overlay))
           : find(layout(), "corral-view") ? this.chip(t, "back", "← Terminals", false, () => flip("main")) : div()))
       .when(!!this.nextUp(t, now), (el) => el.child(this.nextUp(t, now)))
+      .when(!this.archiveView && !!this.spaceChips(t), (el) => el.child(this.spaceChips(t)))
       .when(!!s.error || s.readOnly, (el) => el.child(div().px(14).py(6).bg(alpha(t.blocked, "22")).text_size(12).text_color(t.blocked)
         .child(s.error ?? "This board was made by a newer Corral Board; it is shown read-only.")))
       // Sideways scrolling is ours: only a swipe's horizontal part (or shift + wheel) moves the board,

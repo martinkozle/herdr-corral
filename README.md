@@ -15,7 +15,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.3`, in daily use. Built on herdr-app 0.1.12.
+Status: `0.1.4`, in daily use. Built on herdr-app 0.1.12.
 
 ## Use the whole setup
 
@@ -59,7 +59,11 @@ look at it (`herdr-app shot`).
 
 ## Later
 
-- Space tiles in the launch form; highlight all tasks of one space.
+- Space tiles in the launch form.
+- Focus: the picked agent's terminal beside the board (left or right, your
+  choice), to answer it without flipping away. Optional.
+- PR chips colored by state (open, merged) where `gh` can tell.
+- The question a "needs you" agent asks, read off its screen.
 - `corral-agents`: Herdr's agents list plus a cache-warmth sort and task
   names. Experimental, may never ship.
 - Resume for OpenCode; a cache countdown for Codex and OpenCode, if they ever
