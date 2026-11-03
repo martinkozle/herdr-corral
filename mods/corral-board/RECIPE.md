@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.5`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.6`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.5`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.6`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -171,7 +171,9 @@ One full-size view on `canvas`, top to bottom:
   opens one; under each chip, a dim line gives the host and how long ago it
   was first seen (its own line, so nothing is cut); a long repository name
   shortens with … (the tooltip has the link). And
-  a link that a newer one of its repository follows is dimmed. A click opens
+  a link first seen an hour or more before its repository's latest is dimmed
+  (an earlier round, most likely; links seen close together stay lit, and
+  links without a recorded time are never dimmed). A click opens
   any chip. The row keeps the last ten (`links: [{ u, at }]`, in the order
   they were last mentioned; older boards' bare URLs still read), and they
   stay after the agent ends. "Newest" is the last mentioned, so a PR the

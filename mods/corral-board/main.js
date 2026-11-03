@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.5";
+const BUILD = "0.1.6";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -1036,8 +1036,8 @@ export default class Board extends View {
 
   // The links an agent printed (PRs, Jira issues), across the row under its name, from the name's left edge.
   // Unpicked: the newest of each repository, one chip per line ("web-app #412"). Picked: every link, grouped
-  // under its repository's name, each a numbered line ("1  #412  3h ago"; 1–9 opens it); a link that a newer
-  // one of its repository follows is dimmed. A chip's tooltip is its whole link.
+  // under its repository's name, each a numbered line ("1  #412  3h ago"; 1–9 opens it); a link first seen an
+  // hour or more before its repository's latest is dimmed. A chip's tooltip is its whole link.
   linksBlock(t, row, picked, now) {
     const chip = (l, label, i, fresh) => div().id(`pr-${row.address}-${i}`).min_w(0).px(5).h(16).rounded(4).flex().items_center()
       .text_size(10.5).font_semibold().text_color(fresh ? t.accent : t.muted)
@@ -1053,11 +1053,14 @@ export default class Board extends View {
     let n = 0;
     return v_flex().pl(20).gap(6).min_w(0).children(linkGroups(row).map((g) => v_flex().gap(3).min_w(0)
       .child(div().pl(14).truncate().text_size(10.5).text_color(t.dim).child(g.name))
-      .children(g.links.map((l, k) => {
+      .children(g.links.map((l) => {
         const i = n++;
+        // Dimmed only when its repository has a link first seen an hour or more after it (an earlier round,
+        // most likely); links seen close together (a dev and a prod PR, say) all stay lit. Unknown age: lit.
+        const latest = Math.max(...g.links.map((x) => x.at ?? 0));
         return h_flex().gap(6).items_center().min_w(0).when(i >= 9, (el) => el.opacity(0.6))
           .child(div().w(8).flex_none().child(this.kbd(t, i < 9 ? String(i + 1) : "")))
-          .child(chip(l, shortLabel(l.u), i, k === 0))
+          .child(chip(l, shortLabel(l.u), i, !l.at || latest - l.at < 3600000))
           .when(!!l.at, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${ago(l.at, now)} ago`)));
       }))));
   }
