@@ -13,7 +13,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1-dev.1";
+const BUILD = "0.1.1-dev.2";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -165,7 +165,7 @@ export default class Board extends View {
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
       if (term?.labels?.["corral.task"] !== t.id) continue;
-      const info = this.cache.info(term.foreground?.pid);
+      const info = this.cache.info(term);
       // Resumable only once the conversation is on disk: Claude writes it with the first message, and
       // `claude --resume` refuses a session that has none.
       if (info?.sid && info.path && (r.session !== info.sid || r.cwd !== info.cwd)) ups.push([t.id, r.address, info.sid, info.cwd]);
@@ -182,8 +182,12 @@ export default class Board extends View {
   // Starts an ended Claude agent again with its conversation: `claude --resume <session>` in its folder.
   async revive(taskId, row, cx) {
     const task = this.task(taskId);
-    const space = spaces().find((s) => s.id === (row.space ?? task?.space)) ?? spaces().find((s) => s.active);
-    if (!task || !row.session || !space) return;
+    // The conversation lives on the machine the agent ran on: resume there, never on another machine.
+    const m = machineOf(row.address);
+    const here = spaces().filter((s) => (s.machine ?? null) === m);
+    const space = here.find((s) => s.id === (row.space ?? task?.space)) ?? here.find((s) => s.active) ?? here[0];
+    if (!task || !row.session) return;
+    if (!space) { this.bar = { kind: "note", text: `Couldn't resume: no space open on ${m ?? "this computer"}` }; cx.notify(); return; }
     try {
       const args = { space: space.id, name: row.name, argv: ["claude", "--resume", row.session] };
       if (row.cwd) args.folder = row.cwd;
@@ -469,14 +473,29 @@ export default class Board extends View {
     const cols = this.cols ?? [];
     const col = cols[this.sel.c];
     const item = col?.items[this.sel.i];
-    const task = item?.kind === "task" ? item.task : null;
+    // A task just moved by key may not be in its new column yet (the store writes in the background):
+    // keys act on it, not on whatever the selection landed on meanwhile, so H/L can be pressed repeatedly.
+    const pending = this.follow ? this.task(this.follow.id) : null;
+    if (!pending) this.follow = null;
+    const task = pending ?? (item?.kind === "task" ? item.task : null);
     const clamp = () => { this.sel.c = Math.max(0, Math.min(cols.length - 1, this.sel.c)); this.sel.i = Math.max(0, Math.min((cols[this.sel.c]?.items.length ?? 1) - 1, this.sel.i)); };
-    const moveCol = (d) => {
-      const j = this.sel.c + d;
-      if (!task || j < 1 || j >= cols.length) return;
-      this.change((b) => this.place(b, task.id, cols[j].id, Infinity), cx);
-      this.sel = { c: j, i: cols[j].items.length };
+    // Moves the selected task to column j (at its end) and keeps it selected; an Inbox agent becomes a new
+    // task there, named after it, as when it's dropped on a column.
+    const sendTo = (j) => {
+      if (j < 1 || j >= cols.length) return;
+      if (task) {
+        this.change((b) => this.place(b, task.id, cols[j].id, Infinity), cx);
+        this.follow = { id: task.id, c: j };
+      } else if (item?.kind === "inbox") {
+        const a = item.agent;
+        const id = newId("t");
+        this.label(a.address, id);
+        this.change((b) => { this.newTask(b, cols[j].id, agentName(a), a).id = id; this.place(b, id, cols[j].id, Infinity); }, cx);
+        this.follow = { id, c: j };
+      } else return;
+      this.sel = { c: j, i: Infinity };
     };
+    const moveCol = (d) => sendTo((pending ? this.follow.c : this.sel.c) + d);
     if (this.bar?.kind === "confirm") {
       if (k === "y" || k === "enter") { this.bar.yes(cx); this.bar = null; }
       else if (k === "n" || k === "escape") { const no = this.bar.no; this.bar = null; no?.(cx); }
@@ -484,7 +503,7 @@ export default class Board extends View {
     }
     if (this.bar?.kind === "move") {
       const n = parseInt(k, 10);
-      if (n >= 1 && n < cols.length && task) { this.change((b) => this.place(b, task.id, cols[n].id, Infinity), cx); this.sel = { c: n, i: 0 }; }
+      if (n >= 1 && n < cols.length) sendTo(n);
       this.bar = null; cx.notify(); return;
     }
     // Picking one of the selected task's agents (enter): j k move, enter opens it, anything else leaves.
@@ -509,6 +528,8 @@ export default class Board extends View {
     }
     const helpWasOpen = this.bar?.kind === "help";
     this.bar = null;
+    // Moving the selection yourself stops it following a moved task.
+    if (["h", "l", "j", "k", "g", "G", "shift-g", "left", "right", "up", "down"].includes(k)) this.follow = null;
     switch (k) {
       case "h": case "left": this.sel.c--; break;
       case "l": case "right": this.sel.c++; break;
@@ -519,10 +540,10 @@ export default class Board extends View {
       case "H": case "shift-h": case "shift-left": moveCol(-1); break;
       case "L": case "shift-l": case "shift-right": moveCol(1); break;
       case "K": case "shift-k": case "shift-up":
-        if (task && this.sel.i > 0) { this.change((b) => this.place(b, task.id, col.id, this.sel.i - 1), cx); this.sel.i--; } break;
+        if (task && !pending && this.sel.i > 0) { this.change((b) => this.place(b, task.id, col.id, this.sel.i - 1), cx); this.sel.i--; } break;
       case "J": case "shift-j": case "shift-down":
-        if (task && this.sel.i < col.items.length - 1) { this.change((b) => this.place(b, task.id, col.id, this.sel.i + 1), cx); this.sel.i++; } break;
-      case "m": if (task) this.bar = { kind: "move" }; break;
+        if (task && !pending && this.sel.i < col.items.length - 1) { this.change((b) => this.place(b, task.id, col.id, this.sel.i + 1), cx); this.sel.i++; } break;
+      case "m": if (task || item?.kind === "inbox") this.bar = { kind: "move" }; break;
       case "space": {
         if (!task) break;
         const done = this.doneColumn();
@@ -580,7 +601,7 @@ export default class Board extends View {
   }
 
   cacheBadge(t, term, now) {
-    const w = warmth(this.cache.info(term?.foreground?.pid), now);
+    const w = warmth(this.cache.info(term), now);
     if (!w) return null;
     if (w.cold) return div().flex_none().text_size(10.5).text_color(t.dim).child("cold");
     const c = warmthColor(t, w.share);
@@ -621,7 +642,7 @@ export default class Board extends View {
       // Status on top, cache time under it, right-aligned together.
       .child(v_flex().flex_none().gap(2).items_end()
         .child(h_flex().h(16).items_center()
-          .when(live, (el) => el.child(this.status(t, a.status, this.cache.info(st.term?.foreground?.pid)?.waitingFor) ?? div()))
+          .when(live, (el) => el.child(this.status(t, a.status, this.cache.info(st.term)?.waitingFor) ?? div()))
           .when(st.state === "unknown", (el) => el.child(div().text_size(10.5).text_color(t.dim).child("away")))
           .when(st.state === "ended", (el) => el.child(div().text_size(10.5).text_color(resumable ? t.muted : t.dim).child(resumable ? "↻ resume" : "ended"))))
         .when(live, (el) => el.child(this.cacheBadge(t, st.term, now) ?? div())))
@@ -730,7 +751,7 @@ export default class Board extends View {
           .child(spaceTile(t, spaces().find((s) => s.id === a.space), 13))
           .child(div().flex_1().truncate().child(a.space_name ?? ""))
           .child(this.cacheBadge(t, term, now) ?? div())
-          .child(this.status(t, a.status, this.cache.info(term?.foreground?.pid)?.waitingFor) ?? div()));
+          .child(this.status(t, a.status, this.cache.info(term)?.waitingFor) ?? div()));
     }
     const task = item.task;
     const launching = this.open === task.id;
@@ -925,9 +946,9 @@ export default class Board extends View {
   nextUp(t, now) {
     const waiting = [...this.ags.values()]
       .filter((a) => a.status !== "working")
-      .map((a) => ({ a, w: warmth(this.cache.info(this.terms.get(a.address)?.foreground?.pid), now) }))
+      .map((a) => ({ a, w: warmth(this.cache.info(this.terms.get(a.address)), now) }))
       .filter((x) => x.w && !x.w.cold)
-      .sort((x, y) => this.cache.info(this.terms.get(x.a.address)?.foreground?.pid).expires - this.cache.info(this.terms.get(y.a.address)?.foreground?.pid).expires);
+      .sort((x, y) => this.cache.info(this.terms.get(x.a.address)).expires - this.cache.info(this.terms.get(y.a.address)).expires);
     if (!waiting.length) return null;
     const taskOf = (addr) => this.board.tasks.find((tk) => tk.agents.some((r) => r.address === addr))?.title;
     return h_flex().id("nextup").flex_none().h(34).px(14).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome).overflow_hidden()
@@ -943,7 +964,7 @@ export default class Board extends View {
           .on_click((_e, cx) => { cx.stop_propagation(); this.goTo(a); })
           .child(spaceTile(t, sp, 13))
           .child(div().max_w(180).truncate().text_size(12).text_color(t.foreground).child(label))
-          .child(this.status(t, a.status, this.cache.info(term?.foreground?.pid)?.waitingFor) ?? div())
+          .child(this.status(t, a.status, this.cache.info(term)?.waitingFor) ?? div())
           .child(this.cacheBadge(t, term, now) ?? div());
       }));
   }
@@ -967,6 +988,11 @@ export default class Board extends View {
     this.ags = new Map(agents().map((a) => [a.address, a]));
     const cols = this.shown(this.terms, this.ags).map((c, index) => ({ ...c, index }));
     this.cols = cols;
+    // A task moved by key stays selected once it shows up in its new column.
+    if (this.follow) {
+      const i = cols[this.follow.c]?.items.findIndex((x) => x.kind === "task" && x.task.id === this.follow.id) ?? -1;
+      if (i >= 0) { this.sel = { c: this.follow.c, i }; this.follow = null; }
+    }
     const inOverlay = !!props()?.overlay;
     // Focus can't move during render: do it from a task, right after. Asked for by flip() through shared state,
     // because a hidden copy doesn't render and can't notice it became visible.

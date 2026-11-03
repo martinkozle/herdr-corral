@@ -97,7 +97,8 @@ One full-size view on `canvas`, top to bottom:
   space, sends the message if there is one, adds the agent to the task, and
   goes to it.
 - **Resume:** `claude --resume <session>` in a new tab in the agent's old
-  folder; the row then follows the new agent.
+  folder, on the machine it ran on (its old space, else a space on that
+  machine; none open: a note says so); the row then follows the new agent.
 - **"×" on an agent row** (or `d`/`x` while it's picked): the agent leaves the
   task and goes back to the Inbox. Its terminal keeps running.
 - **Column menu (⋯):** Rename, Move left, Move right, Add column before, Add
@@ -114,9 +115,9 @@ One full-size view on `canvas`, top to bottom:
   | `h` `l` / ← → | previous / next column |
   | `j` `k` / ↓ ↑ | next / previous card |
   | `g` `G` | first / last card |
-  | `H` `L` / shift-← → | move the card to the previous / next column |
+  | `H` `L` / shift-← → | move the card to the previous / next column; it stays selected, so repeat to carry it further. On an Inbox agent, `L` makes it a task in the first column (as dropping it there does) |
   | `K` `J` / shift-↑ ↓ | move the card up / down |
-  | `m` | "Move to:", then 1–9 picks a column |
+  | `m` | "Move to:", then 1–9 picks a column (an Inbox agent becomes a task there) |
   | `space` | move the card to Done (asks, with "Don't ask again") |
   | `n` | new task in this column (a draft card: Enter adds, Esc cancels) |
   | `e` | rename the card (an Inbox entry: make it a task) |
@@ -184,14 +185,20 @@ One full-size view on `canvas`, top to bottom:
   space, name, argv, task?, folder? })])` → `{ space, tab, terminal }`, then
   the label, then `pane.focus {terminal}`. Custom commands are split on
   spaces, quotes kept together; no shell syntax.
-- **Cache** (`cache.js`, Claude only, local agents): `terminals()[i].
-  foreground.pid` → `~/.claude/sessions/<pid>.json` (`sessionId`, `cwd`,
+- **Cache** (`cache.js`, Claude only, this machine and other machines whose
+  `machines()` layout is `ready`; entries keyed by machine and pid):
+  `terminals()[i].foreground.pid` → `~/.claude/sessions/<pid>.json` (`sessionId`, `cwd`,
   `status`, `waitingFor`) → `exec("find", …)` once for
   `~/.claude/projects/*/<sessionId>.jsonl` → `exec("tail", ["-c", "2000000",
   path])`. TTL = 1h if the last `api-request` line with `querySource ===
   "repl_main_thread"` has a `cacheControl[].value.ttl` of `"1h"`, else 5m (the
   last known one if none is in the tail). Expiry = last `assistant`
   `timestamp` + TTL. `watchFolder` on each transcript's folder re-reads it.
+  On another machine (`m/t4`): its home from `exec("printenv", ["HOME"],
+  {on})`, the session file by `readTextFile(path, {on})`, `find` with `{on}`,
+  and no watcher (local only): every 30s tick runs one `sh -c` there that
+  exits 3 when the transcript's size is unchanged, else prints the size and
+  the tail's `assistant`/`api-request` lines.
 - **Space tiles:** the first letter of the space's name on the color the
   shipped `spaces` mod assigned (shared `"space.colors"`: id → `ansiN`), from
   a copy of its table: `ansi6 #22a99a`, `ansi3 #e3814f`, `ansi4 #5b8def`,
@@ -238,7 +245,11 @@ One full-size view on `canvas`, top to bottom:
 - The space tile colors are a copy of the `spaces` mod's table; a Herdr that
   changes them needs the copy updated.
 - The cache color is relative to each cache's own lifetime; read the minutes
-  to compare agents. Codex, OpenCode and remote agents get no cache badge.
+  to compare agents. Codex and OpenCode agents get no cache badge. Remote
+  badges lag up to 30s behind a reply (polled, not watched).
+- Remote Claude cache and resume were built without a Claude agent ever
+  running on another machine (2026-11-03: only Codex on `martinkozle`): they
+  rest on remote `foreground.pid` being that machine's pid, unverified.
 - `board.json` must stay under 1 MiB (`readTextFile`); the archive is what
   grows.
 
