@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.7";
+const BUILD = "0.1.8";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -695,7 +695,13 @@ export default class Board extends View {
     const v = r.state.value().trim();
     this.focus.focus();
     if (!v) { cx.notify(); return; }
-    if (r.kind === "new") this.change((b) => { this.newTask(b, r.id, v); }, cx);
+    // At the top, where its draft was, and selected, so e, a and i act on it straight away.
+    if (r.kind === "new") {
+      const id = newId("t");
+      this.change((b) => { this.newTask(b, r.id, v).id = id; this.place(b, id, r.id, 0); }, cx);
+      const c = (this.cols ?? []).findIndex((x) => x.id === r.id);
+      if (c >= 0) { this.follow = { id, c }; this.sel = { c, i: 0 }; }
+    }
     if (r.kind === "task") this.change((b) => { b.tasks.find((t) => t.id === r.id).title = v; }, cx);
     if (r.kind === "column") this.change((b) => { b.columns.find((c) => c.id === r.id).name = v; }, cx);
     if (r.kind === "inbox") {
@@ -1124,7 +1130,8 @@ export default class Board extends View {
   }
 
   card(t, col, item, i, now) {
-    const selected = this.sel.c === col.index && this.sel.i === i;
+    // While a new task is typed, its draft is the selection.
+    const selected = this.sel.c === col.index && this.sel.i === i && this.rename?.kind !== "new";
     const lifted = this.drag && this.press?.id === item.id;
     const hovered = this.hoverCard === item.id;
     const base = v_flex().id(`card-${item.id}`).w_full().p(10).gap(6).rounded(8).border(1).bg(t.surface)
@@ -1302,6 +1309,8 @@ export default class Board extends View {
 
   column(t, col, now) {
     const inbox = col.id === INBOX;
+    const selCol = this.sel.c === col.index;
+    const draft = this.rename?.kind === "new" && this.rename.id === col.id;
     const showLine = (i) => this.drag && this.press?.kind && this.over?.col === col.id && this.over.index === i;
     const line = () => div().h(2).w_full().rounded(1).bg(t.accent);
     const cards = [];
@@ -1316,7 +1325,7 @@ export default class Board extends View {
     const header = h_flex().id(`ch-${col.id}`).h(32).px(4).gap(4).items_center().flex_none()
       .child(this.rename?.kind === "column" && this.rename.id === col.id
         ? this.field(t, this.rename.state)
-        : div().text_size(12).font_medium().text_color(t.muted).child(col.name))
+        : div().text_size(12).font_medium().text_color(selCol ? t.foreground : t.muted).child(col.name))
       .child(div().text_size(11).text_color(t.dim).child(String(col.items.length)))
       .child(div().flex_1())
       .when(!inbox && col.id === this.doneColumn()?.id && col.items.length > 0, (el) => el.child(this.chip(t, `clear-${col.id}`, "Clear", false, (cx) => this.clearDone(cx))))
@@ -1341,7 +1350,10 @@ export default class Board extends View {
       .child(v_flex().id(`cb-${col.id}`).flex_1().min_h(0).overflow_y_scroll().gap(6)
         .on_mouse_move((e, cx) => this.track(e, { col: col.id, index: col.items.length }, cx))
         .children(cards)
-        .when(col.items.length === 0 && inbox, (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child("Agents you start in Herdr wait here until you give them a task."))));
+        .when(col.items.length === 0 && inbox, (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child("Agents you start in Herdr wait here until you give them a task.")))
+        // An empty column shows no selected card, so the selection is this outline instead.
+        .when(col.items.length === 0 && !inbox && selCol && !draft, (el) => el.child(div().id(`empty-${col.id}`).h(40).rounded(8).border(1).border_dashed().border_color(t.accent)
+          .flex().items_center().justify_center().text_size(11.5).text_color(t.dim).child("Empty · n to add a task"))));
   }
 
   // The Archive view (A): archived and deleted tasks, newest first; restore puts one back in its column.
