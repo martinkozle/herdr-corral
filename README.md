@@ -5,9 +5,11 @@ tasks hold the coding agents you start for them, packaged as a layout plus
 small mods. Each mod works on its own.
 
 - **Corral Board** (`mods/corral-board`): your own columns and tasks; each
-  task holds its agents with their Herdr status and a Claude prompt-cache
-  countdown; an Inbox of agents not on a task yet; drag and drop; launch or
-  resume an agent from a task; keyboard-driven too (`?` on the board).
+  task holds its agents with their Herdr status, a Claude prompt-cache
+  countdown and the PR links they printed; an Inbox of agents not on a task
+  yet; drag and drop; launch an agent from a task (optionally in a new git
+  worktree) or resume an ended Claude or Codex one, here or on another
+  machine; undo, redo and an archive view; keyboard-driven too (`?` on the board).
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
@@ -32,15 +34,18 @@ If the files don't work on your Herdr version, have your agent rebuild from the
 
 ## What it touches
 
-The board runs `herdr-app` and `hc` (to start agents and label their
-terminals), and `find`, `tail`, `ls`, `rm`, `mkdir`. It reads Claude Code's
+The board runs `herdr-app` and `hc` (to start agents, label their
+terminals and read their screens for PR links), `git` (only for a new
+worktree), `open`/`xdg-open` (a PR link you click), and `find`, `tail`, `ls`,
+`rm`, `mkdir`, `ps`, `wc`, `grep`, `printenv` (here and on machines with
+agents on the board). It reads Codex's `~/.codex/sessions/` too. It reads Claude Code's
 `~/.claude/sessions/` and `~/.claude/projects/` (for the cache countdown and
 resume) and keeps its data in `~/.config/herdr-app/corral/` (`board.json`
 plus its last 50 versions in `backups/`). No network.
 
-There's no undo in the board: to undo a change, restore a file from
-`corral/backups/` over `board.json` (or ask your agent to); the board reloads
-by itself.
+Undo (`u`) and redo (`U`) cover the board window's own changes since it opened. For
+anything older, restore a file from `corral/backups/` over `board.json` (or
+ask your agent to); the board reloads by itself.
 
 ## Developing
 
@@ -52,15 +57,9 @@ look at it (`herdr-app shot`).
 
 ## Later
 
-- "Next up": Claude agents ordered by cache expiry, soonest first.
-- Undo in the board; a view of archived (and deleted) tasks.
-- Keyboard control of the launch form's space and agent pickers.
 - Space tiles in the launch form; highlight all tasks of one space.
-- A prefilled, unsent first message; a "new git worktree" option on launch
-  (Herdr's `worktree` mod, `{branch, argv}`).
 - `corral-agents`: Herdr's agents list plus a cache-warmth sort and task
   names. Experimental, may never ship.
-- PR links on tasks.
-- Cache countdown and resume for Codex and OpenCode, and for agents on other
-  machines.
+- Resume for OpenCode; a cache countdown for Codex and OpenCode, if they ever
+  state their cache lifetime.
 - `preview.png` for the layout and the board (from a demo board).

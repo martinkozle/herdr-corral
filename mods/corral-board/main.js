@@ -3,9 +3,9 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, terminals, spaces, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared } from "herdr";
+import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared } from "herdr";
 import { Store, newId, DIR } from "./store.js";
-import { Cache, warmth, warmthColor } from "./cache.js";
+import { Cache, warmth, warmthColor, prLinks, prLabel } from "./cache.js";
 import { Codex } from "./codex.js";
 
 const ICONS = "mods/workspace-chrome";
@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1-dev.3";
+const BUILD = "0.1.1-dev.8";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -62,6 +62,19 @@ function spaceTile(t, space, size = 14) {
 
 const machineOf = (addr) => (addr.includes("/") ? addr.split("/")[0] : null);
 
+// Opens a link in the browser on this computer.
+function openUrl(url) {
+  exec("open", [url]).catch(() => exec("xdg-open", [url]).catch(() => {}));
+}
+
+// Where a space is now: its first terminal's live folder, else where it was made (as the worktree mod reads it).
+function placeOf(s) {
+  const tabs = new Set((s?.tabs ?? []).map((c) => c.id));
+  return panes().find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s?.folder || null;
+}
+const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+const NAV = ["h", "l", "j", "k", "g", "G", "shift-g", "left", "right", "up", "down"];
+
 // What a person calls an agent: its own title, unless that only names the program.
 function agentName(a) {
   if (a.title && a.title !== a.program?.name) return a.title;
@@ -87,7 +100,7 @@ export default class Board extends View {
     this.focus = cx.focus_handle();
     this.sel = { c: 1, i: 0 };
     this.open = null;      // the opened task's id
-    this.typing = 0;       // inputs holding the keyboard: board keys stay off
+    this.inputs = new Set(); // text boxes holding the keyboard (board keys stay off): see typing
     this.press = null;     // a press that may become a drag
     this.drag = null;
     this.over = null;      // where a drag would land: { col, index } or { task }
@@ -96,6 +109,9 @@ export default class Board extends View {
     this.launch = null;    // the open card's launch form
     this.colMenu = null;
     this.rename = null;    // { kind: "task" | "column" | "inbox", id, state }
+    this.archiveView = null; // { i }: the Archive view, its selected row
+    this.attach = null;    // { address, name }: an Inbox agent being added to a task by key (t)
+    this.screenLinks = new Map(); // address → PR links seen on a (non-Claude) agent's screen
     // No cx.bind_keys: its bindings are app-wide and outlive a reload (a removed one fails as an unknown
     // command until Herdr restarts). Enter variants arrive as the textarea's "submit" event instead.
     this.filterState = this.input("Filter tasks", "", (s) => { this.filter = s.value().toLowerCase(); });
@@ -123,6 +139,8 @@ export default class Board extends View {
       await this.codex.refresh(terminals(), new Set(machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name)));
       await this.adopt();
       await this.recordSessions();
+      await this.scanScreens();
+      await this.recordLinks();
       cx.notify();
     });
     tick(cx);
@@ -132,10 +150,24 @@ export default class Board extends View {
   // An InputState that keeps board keys off while it has the keyboard.
   input(placeholder, value, onChange, multi = false) {
     const s = multi ? TextareaState.new({ placeholder, value }) : InputState.new({ placeholder, value });
-    s.on("focus", (_e, cx) => { this.typing++; cx.notify(); });
-    s.on("blur", (_e, cx) => { this.typing = Math.max(0, this.typing - 1); cx.notify(); });
+    s.on("focus", (_e, cx) => { this.inputs.add(s); cx.notify(); });
+    s.on("blur", (_e, cx) => { this.inputs.delete(s); cx.notify(); });
     if (onChange) s.on("change", (_e, cx) => { onChange(s); cx.notify(); });
     return s;
+  }
+
+  // Whether a text box has the keyboard. A box that disappears while focused (its card closed, the branch
+  // field hidden, an undo) sends no blur, so the board holding the keyboard itself overrules the set.
+  get typing() {
+    if (this.inputs.size && this.focus.is_focused()) this.inputs.clear();
+    return this.inputs.size > 0;
+  }
+
+  // The text boxes on screen now; one that holds the keyboard but isn't among them hands it back to the board.
+  liveInputs() {
+    const L = this.open && this.launch;
+    return new Set([this.filterState, this.open && this.openMode === "info" && this.notes, this.notesEdit?.state, this.rename?.state,
+      L && L.msg, L && L.agent === CUSTOM && L.custom, L && L.worktree && L.branch].filter(Boolean));
   }
 
   get board() { return this.store.board; }
@@ -156,9 +188,9 @@ export default class Board extends View {
       for (const [id, t] of missing) {
         const task = b.tasks.find((x) => x.id === id);
         // A terminal can have no title yet (just started): fall back to its program, then the task.
-        task?.agents.push({ address: t.address, app: t.report?.app ?? null, name: t.title || t.program?.name || task.title, space: t.labels?.["herdr.space"] ?? null, started: t.created_ms ?? Date.now() });
+        if (task && !task.agents.some((a) => a.address === t.address)) task.agents.push({ address: t.address, app: t.report?.app ?? null, name: t.title || t.program?.name || task.title, space: t.labels?.["herdr.space"] ?? null, started: t.created_ms ?? Date.now() });
       }
-    });
+    }, { auto: true });
   }
 
   // Remembers each live Claude or Codex agent's session and folder on its row: what resuming needs later.
@@ -181,7 +213,115 @@ export default class Board extends View {
         const r = b.tasks.find((x) => x.id === tid)?.agents.find((x) => x.address === addr);
         if (r) { r.session = sid; r.cwd = cwd; r.app = app; }
       }
+    }, { auto: true });
+  }
+
+  // PR links an agent printed: Claude's come from its transcript (cache.js), other agents' from their
+  // screen (a link must be on screen at a 30s tick to be seen; a wrapped one may be missed).
+  async scanScreens() {
+    const terms = new Map(terminals().map((x) => [x.address, x]));
+    for (const t of this.board.tasks) for (const r of t.agents) {
+      const term = terms.get(r.address);
+      if (term?.state !== "live" || !term.report?.app || term.report.app === "claude-code") continue;
+      try {
+        const x = await hc(["read", r.address, "--json"]);
+        const found = prLinks(JSON.parse(x.stdout || "{}").text ?? "");
+        if (found.length) this.screenLinks.set(r.address, found);
+      } catch (_e) { /* gone meanwhile */ }
+    }
+  }
+
+  // Keeps the last three PR links of each agent on its row, so they stay after the agent ends.
+  async recordLinks() {
+    const terms = new Map(terminals().map((x) => [x.address, x]));
+    const ups = [];
+    for (const t of this.board.tasks) for (const r of t.agents) {
+      const term = terms.get(r.address);
+      if (term?.labels?.["corral.task"] !== t.id) continue;
+      const found = term.report?.app === "claude-code" ? this.cache.info(term)?.prs : this.screenLinks.get(r.address);
+      if (!found?.length) continue;
+      const links = prLinks([...(r.links ?? []), ...found].join(" ")).slice(-3);
+      if (links.join(" ") !== (r.links ?? []).join(" ")) ups.push([t.id, r.address, links]);
+    }
+    if (!ups.length) return;
+    await this.store.change((b) => {
+      for (const [tid, addr, links] of ups) {
+        const r = b.tasks.find((x) => x.id === tid)?.agents.find((x) => x.address === addr);
+        if (r) r.links = links;
+      }
+    }, { auto: true });
+  }
+
+  // Archives a task, or deletes it: both go to the archive (the Archive view restores them); deleted ones
+  // are marked and dropped after 30 days.
+  shelve(task, cx, deleted = false) {
+    const now = Date.now();
+    this.change((b) => {
+      const tk = b.tasks.find((x) => x.id === task.id);
+      if (!tk) return;
+      b.tasks = b.tasks.filter((x) => x.id !== task.id);
+      b.archive.push({ ...tk, archived: now, ...(deleted ? { deleted: now } : {}) });
+      b.archive = b.archive.filter((x) => !x.deleted || now - x.deleted < 30 * 86400000);
+    }, cx);
+  }
+
+  restore(id, cx) {
+    this.change((b) => {
+      let i = b.archive.length - 1;
+      while (i >= 0 && b.archive[i].id !== id) i--;
+      if (i < 0) return;
+      const [x] = b.archive.splice(i, 1);
+      delete x.archived; delete x.deleted;
+      if (!b.columns.some((c) => c.id === x.column)) x.column = b.columns[0].id;
+      x.updated = Date.now();
+      b.tasks.push(x);
+    }, cx);
+  }
+
+  // Undoes this window's last change to the board. Terminal labels follow, or the 30s rejoin would
+  // put an agent back where the undo took it from.
+  // The board keeps the keyboard, and a task the step moved (or brought back) is selected.
+  undo(cx, redo = false) {
+    cx.spawn(async (cx) => {
+      const r = await (redo ? this.store.redo() : this.store.undo());
+      this.focus.focus();
+      const word = redo ? "redo" : "undo";
+      if (!r || r === "changed") {
+        this.bar = { kind: "note", text: r ? `The board changed elsewhere since, so ${word} stopped. Older versions are in corral/backups.` : redo ? "Nothing to redo." : "Nothing to undo (only this window's changes, since it opened)." };
+        cx.notify(); return;
+      }
+      const moved = r.to.tasks.find((x) => { const o = r.from.tasks.find((y) => y.id === x.id); return !o || o.column !== x.column; });
+      const c = moved ? r.to.columns.findIndex((col) => col.id === moved.column) + 1 : 0;
+      if (c > 0) { this.follow = { id: moved.id, c }; this.sel = { c, i: Infinity }; this.pickAgent = null; }
+      const owner = (b) => { const m = new Map(); for (const t of b.tasks) for (const a of t.agents) m.set(a.address, t.id); return m; };
+      const was = owner(r.from);
+      const now = owner(r.to);
+      const live = new Set(terminals().map((x) => x.address));
+      for (const addr of new Set([...was.keys(), ...now.keys()])) if (was.get(addr) !== now.get(addr) && live.has(addr)) this.label(addr, now.get(addr) ?? null);
+      cx.notify();
     });
+  }
+
+  // The Archive view's rows: newest first, through the filter.
+  archived() {
+    const f = this.filter;
+    return [...this.board.archive].reverse().filter((x) => !f || x.title.toLowerCase().includes(f) || (x.notes ?? "").toLowerCase().includes(f));
+  }
+
+  archiveKey(k, cx) {
+    const list = this.archived();
+    const v = this.archiveView;
+    if (k === "j" || k === "down") v.i++;
+    else if (k === "k" || k === "up") v.i--;
+    else if (k === "g") v.i = 0;
+    else if (k === "G" || k === "shift-g") v.i = list.length - 1;
+    else if ((k === "r" || k === "enter") && list[v.i]) this.restore(list[v.i].id, cx);
+    else if (k === "u") this.undo(cx);
+    else if (k === "U" || k === "shift-u" || k === "ctrl-r") this.undo(cx, true);
+    else if (k === "/") this.filterState.focus();
+    else if (k === "escape" || k === "A" || k === "shift-a") this.archiveView = null;
+    if (this.archiveView) v.i = Math.max(0, Math.min(list.length - 1, v.i));
+    cx.notify();
   }
 
   // Starts an ended agent again with its conversation, in its folder: `claude --resume <session>` or
@@ -319,6 +459,7 @@ export default class Board extends View {
     if (message) args.task = message;
     L.busy = true; L.error = null; cx.notify();
     try {
+      if (L.worktree) args.folder = await this.makeWorktree(space, L.branch.value().trim());
       const r = await exec("herdr-app", ["do", "tab.new", JSON.stringify(args)]);
       const out = JSON.parse(r.stdout || "{}");
       if (r.code !== 0 || !out.terminal) throw new Error(out.error ?? (r.stderr || "no terminal"));
@@ -342,6 +483,30 @@ export default class Board extends View {
     cx.notify();
   }
 
+  // A git worktree to launch in, where Herdr's worktree mod keeps them (~/.herdr/worktrees/<repo>/<branch>),
+  // so its open and remove find it. Made from the space's folder: an existing branch is checked out, a new
+  // one starts at that folder's HEAD; a checkout already at that path is reused.
+  async makeWorktree(space, branch) {
+    if (!branch) throw new Error("Type a branch name for the worktree.");
+    const on = space.machine ?? null;
+    const git = async (cwd, args) => {
+      const r = await exec("git", args, { cwd, on });
+      return { ok: r.code === 0, out: (r.stdout ?? "").trim(), err: (r.stderr || r.stdout || "").trim() };
+    };
+    const h = await this.cache.homeOf(on);
+    const base = placeOf(space) || h;
+    const common = await git(base, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    if (!common.ok) throw new Error(`${base} isn't in a git repository (the space's folder).`);
+    const main = common.out.endsWith("/.git") ? common.out.slice(0, -5) : common.out;
+    const path = `${h}/.herdr/worktrees/${main.split("/").pop()}/${slug(branch)}`;
+    const list = await git(main, ["worktree", "list", "--porcelain"]);
+    if (list.out.split("\n").includes(`worktree ${path}`)) return path;
+    const exists = (await git(main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).ok;
+    const r = await git(base, exists ? ["worktree", "add", path, branch] : ["worktree", "add", "-b", branch, path, "HEAD"]);
+    if (!r.ok) throw new Error(r.err || "git worktree add failed.");
+    return path;
+  }
+
   // mode: "info" (notes, rename, archive, delete) or "launch" (start an agent for it). Again: closes.
   openTask(task, cx, mode = "info") {
     if (!task || (this.open === task.id && this.openMode === mode)) { this.open = null; this.launch = null; return; }
@@ -359,7 +524,10 @@ export default class Board extends View {
       space, agent: null, busy: false, error: null,
       msg: this.input("First message (optional)", "", null, true),
       custom: this.input("Command, e.g. pi --model x", this.board.prefs?.customCommand ?? "", null),
+      worktree: false,
+      branch: this.input("Branch (new or existing)", "", null),
     };
+    this.launch.branch.on("submit", (_e, cx) => this.commit(cx));
     this.launch.msg.set_auto_grow(2, 6);
     this.launch.msg.on("submit", (e, cx) => this.submitted(this.launch.msg, e, () => this.commit(cx), cx));
     this.launch.msg.focus();
@@ -508,10 +676,46 @@ export default class Board extends View {
       else if (k === "n" || k === "escape") { const no = this.bar.no; this.bar = null; no?.(cx); }
       cx.notify(); return;
     }
+    if (this.archiveView) { this.archiveKey(k, cx); return; }
     if (this.bar?.kind === "move") {
       const n = parseInt(k, 10);
       if (n >= 1 && n < cols.length) sendTo(n);
       this.bar = null; cx.notify(); return;
+    }
+    // The open launch form: s / p open the space / agent picker (j k, enter picks, esc closes it), w toggles
+    // a new worktree, i (or tab) goes back to the message, enter launches. Other keys work as usual.
+    if (this.launch && this.open) {
+      const L = this.launch;
+      const pk = L.pick && L.pickers?.[L.pick];
+      if (pk) {
+        if (k === "j" || k === "down") L.hi = Math.min(pk.options.length - 1, (L.hi ?? 0) + 1);
+        else if (k === "k" || k === "up") L.hi = Math.max(0, (L.hi ?? 0) - 1);
+        else if (k === "enter") { const o = pk.options[L.hi ?? 0]; L.pick = null; if (o) pk.onPick(o, cx); }
+        else if (k === "escape") L.pick = null;
+        cx.notify(); return;
+      }
+      const openPicker = (id) => { const p = L.pickers?.[id]; if (!p) return; L.pick = id; L.hi = Math.max(0, p.options.findIndex((o) => o.key === p.value)); };
+      const tk = this.task(this.open);
+      const hit = { s: () => openPicker(`psp-${this.open}`), p: () => openPicker(`pag-${this.open}`),
+        w: () => { L.worktree = !L.worktree; if (L.worktree) L.branch.focus(); },
+        i: () => L.msg.focus(),
+        enter: () => { if (tk && !L.busy) cx.spawn((cx) => this.doLaunch(tk, cx)); } }[k];
+      if (hit) { hit(); cx.notify(); return; }
+    }
+    // Adding an Inbox agent to a task (t): the usual keys move to a task, enter adds it there, esc cancels.
+    if (this.attach) {
+      if (k === "escape") { this.attach = null; cx.notify(); return; }
+      if (k === "enter") {
+        const at = this.attach;
+        this.attach = null;
+        const a = agents().find((x) => x.address === at.address);
+        if (task && a) {
+          this.label(a.address, task.id);
+          this.change((b) => { const tk = b.tasks.find((x) => x.id === task.id); if (tk && !tk.agents.some((r) => r.address === a.address)) tk.agents.push(this.rowFrom(a)); }, cx);
+        }
+        cx.notify(); return;
+      }
+      if (!NAV.includes(k)) return;
     }
     // Picking one of the selected task's agents (enter): j k move, enter opens it, anything else leaves.
     if (this.pickAgent != null && task) {
@@ -520,6 +724,8 @@ export default class Board extends View {
       if (k === "j" || k === "down") { this.pickAgent = Math.min(rows.length - 1, this.pickAgent + 1); cx.notify(); return; }
       if (k === "k" || k === "up") { this.pickAgent = Math.max(0, this.pickAgent - 1); cx.notify(); return; }
       if (k === "enter") { this.pickAgent = null; this.actOnRow(task, x, cx); cx.notify(); return; }
+      if (k === "a") { this.pickAgent = null; this.openTask(task, cx, "launch"); cx.notify(); return; }
+      if (k === "o" && x?.r.links?.length) { openUrl(x.r.links[x.r.links.length - 1]); cx.notify(); return; }
       // d or x: this agent leaves the task (back to the Inbox; its terminal keeps running). Never the task.
       if ((k === "x" || k === "d") && x) {
         this.label(x.r.address, null); // whatever runs there now (an agent, or the shell it left)
@@ -536,7 +742,7 @@ export default class Board extends View {
     const helpWasOpen = this.bar?.kind === "help";
     this.bar = null;
     // Moving the selection yourself stops it following a moved task.
-    if (["h", "l", "j", "k", "g", "G", "shift-g", "left", "right", "up", "down"].includes(k)) this.follow = null;
+    if (NAV.includes(k)) this.follow = null;
     switch (k) {
       case "h": case "left": this.sel.c--; break;
       case "l": case "right": this.sel.c++; break;
@@ -571,8 +777,15 @@ export default class Board extends View {
       case "escape": this.open = null; this.launch = null; this.filterState.set_value(""); this.filter = ""; break;
       case "a": if (task) this.openTask(task, cx, "launch"); break;
       case "i": if (task) this.startNotes(task); break;
-      case "x": if (task) this.change((b) => { b.tasks = b.tasks.filter((t) => t.id !== task.id); b.archive.push({ ...task, archived: Date.now() }); }, cx); break;
-      case "d": if (task) this.ask(`Delete "${task.title}"?`, (cx) => this.change((b) => { b.tasks = b.tasks.filter((t) => t.id !== task.id); }, cx)); break;
+      case "x": if (task) this.shelve(task, cx); break;
+      case "d": if (task) this.ask(`Delete "${task.title}"?`, (cx) => this.shelve(task, cx, true)); break;
+      case "u": this.undo(cx); break;
+      case "U": case "shift-u": case "ctrl-r": this.undo(cx, true); break;
+      case "A": case "shift-a": this.archiveView = { i: 0 }; this.open = null; this.launch = null; break;
+      case "t":
+        // An Inbox agent onto an existing task: pick the task with the usual keys, enter adds it.
+        if (item?.kind === "inbox") { this.attach = { address: item.id, name: agentName(item.agent) }; this.sel = { c: Math.min(1, cols.length - 1), i: 0 }; }
+        break;
       case "X": case "shift-x": this.ask(`Archive every task in ${this.doneColumn().name}?`, (cx) => this.clearDone(cx)); break;
       case "/": this.filterState.focus(); break;
       case "?": case "shift-/": if (!helpWasOpen) this.bar = { kind: "help" }; break;
@@ -645,7 +858,16 @@ export default class Board extends View {
         .child(div().text_color(live ? t.foreground : t.dim).child(live ? agentName(a) : (row.name || this.task(taskId)?.title || row.address)))
         .child(h_flex().gap(5).items_center().min_w(0)
           .when(!!sp, (el) => el.child(spaceTile(t, sp, 13)))
-          .child(div().truncate().text_size(10.5).text_color(t.dim).child(sp?.name ?? ""))))
+          .child(div().truncate().text_size(10.5).text_color(t.dim).child(sp?.name ?? "")))
+        // PR links it printed, newest first; o opens the newest while the row is picked.
+        .when(!!row.links?.length, (el) => el.child(h_flex().gap(4).pt(2).flex_wrap().items_center()
+          .child(this.kbd(t, "o", picked))
+          .children([...row.links].reverse().map((u, i) => div().id(`pr-${row.address}-${i}`).px(5).h(16).rounded(4).flex().items_center()
+            .text_size(10.5).font_semibold().text_color(t.accent).bg(alpha(t.accent, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
+            .tooltip(u)
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { cx.stop_propagation(); openUrl(u); })
+            .child(prLabel(u)))))))
       // Status on top, cache time under it, right-aligned together.
       .child(v_flex().flex_none().gap(2).items_end()
         .child(h_flex().h(16).items_center()
@@ -781,8 +1003,8 @@ export default class Board extends View {
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenu = menuOpen ? null : task.id; cx.notify(); }).child("⋯")))
       .when(menuOpen, (el) => el.child(this.menu(t, `cm-${task.id}`, [
-        ["Archive  (x)", (cx) => this.change((b) => { b.tasks = b.tasks.filter((x) => x.id !== task.id); b.archive.push({ ...task, archived: Date.now() }); }, cx)],
-        ["Delete  (d)", () => this.ask(`Delete "${task.title}"?`, (cx) => this.change((b) => { b.tasks = b.tasks.filter((x) => x.id !== task.id); }, cx)), true],
+        ["Archive  (x)", (cx) => this.shelve(task, cx)],
+        ["Delete  (d)", () => this.ask(`Delete "${task.title}"?`, (cx) => this.shelve(task, cx, true)), true],
       ], () => { this.cardMenu = null; })))
       // Notes: a faint box that is always there; a click edits it in place.
       .child(this.notesEdit?.id === task.id
@@ -841,8 +1063,11 @@ export default class Board extends View {
   // A one-line picker: shows the choice; a click lists the options below it.
   picker(t, id, value, options, onPick) {
     const open = this.launch?.pick === id;
-    const row = (o) => div().id(`${id}-${o.key}`).h(24).px(8).flex().items_center().rounded(4).text_size(12).truncate().cursor_pointer()
+    // The keyboard can open it (its key), so the form remembers each picker's options.
+    this.launch.pickers = { ...(this.launch.pickers ?? {}), [id]: { options, onPick, value: value?.key } };
+    const row = (o, i) => div().id(`${id}-${o.key}`).h(24).px(8).flex().items_center().rounded(4).text_size(12).truncate().cursor_pointer()
       .text_color(o.key === value?.key ? t.foreground : t.muted).when(o.key === value?.key, (el) => el.bg(t.selected))
+      .when(open && this.launch.hi === i, (el) => el.bg(t.hover).text_color(t.foreground))
       .hover((s) => s.bg(t.hover))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); this.launch.pick = null; onPick(o, cx); cx.notify(); })
@@ -853,7 +1078,7 @@ export default class Board extends View {
         .on_click((_e, cx) => { cx.stop_propagation(); this.launch.pick = open ? null : id; cx.notify(); })
         .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(value ? t.foreground : t.dim).child(value?.label ?? "…"))
         .child(svg(`${ICONS}/chevron-down.svg`).size(11).flex_none().text_color(t.dim)))
-      .when(open, (el) => el.child(v_flex().id(`${id}-list`).max_h(180).overflow_y_scroll().p(3).rounded(6).border(1).border_color(t.border).bg(t.popover).children(options.map(row))));
+      .when(open, (el) => el.child(v_flex().id(`${id}-list`).max_h(180).overflow_y_scroll().p(3).rounded(6).border(1).border_color(t.border).bg(t.popover).children(options.map((o, i) => row(o, i)))));
   }
 
   details(t, task) {
@@ -863,6 +1088,9 @@ export default class Board extends View {
     const agentOpts = [...(this.known[sp?.machine ?? ""] ?? []).filter((k) => k.installed).map((k) => ({ key: k.key, label: k.name })), { key: CUSTOM, label: "Custom command…" }];
     const info = this.openMode === "info";
     const label = (s) => div().text_size(11).text_color(t.dim).child(s);
+    const hinted = (key, top, el) => h_flex().gap(6).items_start()
+      .child(div().w(8).flex_none().pt(top).child(this.kbd(t, key, !this.typing)))
+      .child(div().flex_1().min_w(0).child(el));
     const box = (state) => Textarea.new(state).px(8).py(6).rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(12.5);
     const link = (id, text, click) => div().id(id).text_size(11.5).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
@@ -872,19 +1100,23 @@ export default class Board extends View {
       .when(info, (el) => el.child(label("Notes")).child(box(this.notes)))
       .when(!!L, (el) => el
         .child(label("Launch an agent"))
-        .child(h_flex().gap(6).items_start()
-          .child(this.picker(t, `psp-${task.id}`, spaceOpts.find((o) => o.key === L.space), spaceOpts, (o, cx) => { L.space = o.key; L.agent = null; this.loadAgents(o.key, cx); }))
-          .child(this.picker(t, `pag-${task.id}`, agentOpts.find((o) => o.key === L.agent), agentOpts, (o) => { L.agent = o.key; })))
-        .when(L.agent === CUSTOM, (el) => el.child(Input.new(L.custom).h(26).px(8).items_center().rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(12)))
-        .child(box(L.msg))
+        // One control per row, its key hint in a fixed gutter on the left, so every control starts at the same edge.
+        .child(hinted("s", 23, v_flex().gap(3).child(label("Space")).child(this.picker(t, `psp-${task.id}`, spaceOpts.find((o) => o.key === L.space), spaceOpts, (o, cx) => { L.space = o.key; L.agent = null; this.loadAgents(o.key, cx); }))))
+        .child(hinted("p", 23, v_flex().gap(3).child(label("Agent")).child(this.picker(t, `pag-${task.id}`, agentOpts.find((o) => o.key === L.agent), agentOpts, (o) => { L.agent = o.key; }))))
+        .when(L.agent === CUSTOM, (el) => el.child(hinted("", 0, Input.new(L.custom).h(26).px(8).items_center().rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(12))))
+        .child(hinted("i", 7, box(L.msg)))
+        .child(hinted("w", 4, h_flex().gap(6).items_center()
+          .child(this.chip(t, `wt-${task.id}`, `${L.worktree ? "☑" : "☐"} New worktree`, false, () => { L.worktree = !L.worktree; if (L.worktree) L.branch.focus(); }))
+          .when(L.worktree, (el) => el.child(div().flex_1().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .child(Input.new(L.branch).h(26).px(8).items_center().rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(12))))))
         .child(h_flex().gap(8).items_center()
           .when(info === false && !!task.notes, (el) => el.child(link(`usenotes-${task.id}`, "Use notes", () => L.msg.set_value(task.notes))))
           .child(div().flex_1())
           .child(this.chip(t, `go-${task.id}`, L.busy ? "Launching…" : "Launch  ↵", true, (cx) => { if (!L.busy) cx.spawn((cx) => this.doLaunch(task, cx)); })))
         .when(!!L.error, (el) => el.child(div().text_size(11.5).text_color(t.blocked).child(L.error))))
       .when(info, (el) => el.child(h_flex().gap(12).pt(2).justify_end()
-        .child(link(`arch-${task.id}`, "Archive", (cx) => { this.open = null; this.change((b) => { b.tasks = b.tasks.filter((x) => x.id !== task.id); b.archive.push({ ...task, archived: Date.now() }); }, cx); }))
-        .child(link(`del-${task.id}`, "Delete", () => { this.ask(`Delete "${task.title}"?`, (cx) => { this.open = null; this.change((b) => { b.tasks = b.tasks.filter((x) => x.id !== task.id); }, cx); }); }))));
+        .child(link(`arch-${task.id}`, "Archive", (cx) => { this.open = null; this.shelve(task, cx); }))
+        .child(link(`del-${task.id}`, "Delete", () => { this.ask(`Delete "${task.title}"?`, (cx) => { this.open = null; this.shelve(task, cx, true); }); }))));
   }
 
   column(t, col, now) {
@@ -922,21 +1154,54 @@ export default class Board extends View {
             .on_click((_e, cx) => { this.columnAction(a, col.id, cx); cx.notify(); })
             .child(l)))
       : null;
-    return v_flex().id(`col-${col.id}`).w(COL_W).h_full().flex_none().min_h(0)
+    return v_flex().id(`col-${col.id}`).w(COL_W).flex_none().min_h(0)
       .child(header)
       .when(!!menu, (el) => el.child(menu))
-      .child(v_flex().id(`cb-${col.id}`).flex_1().min_h(0).overflow_y_scroll().gap(6).pb(40)
+      .child(v_flex().id(`cb-${col.id}`).flex_1().min_h(0).overflow_y_scroll().gap(6)
         .on_mouse_move((e, cx) => this.track(e, { col: col.id, index: col.items.length }, cx))
         .children(cards)
         .when(col.items.length === 0 && inbox, (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child("Agents you start in Herdr wait here until you give them a task."))));
   }
 
+  // The Archive view (A): archived and deleted tasks, newest first; restore puts one back in its column.
+  archivePanel(t) {
+    const list = this.archived();
+    const v = this.archiveView;
+    const colName = (id) => this.board.columns.find((c) => c.id === id)?.name ?? "the first column";
+    const date = (ms) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const W = 640;
+    return v_flex().id("archive").flex_1().min_h(0).w_full().overflow_y_scroll().p(14).gap(6).items_center()
+      .child(h_flex().w(W).gap(8).items_center().pb(4)
+        .child(div().text_size(13).font_semibold().child("Archive"))
+        .child(div().text_size(11.5).text_color(t.dim).child("newest first · j k · r restores · deleted tasks stay 30 days"))
+        .child(div().flex_1())
+        .child(this.chip(t, "arch-close", "Close (esc)", false, () => { this.archiveView = null; })))
+      .when(!list.length, (el) => el.child(div().w(W).text_size(12).text_color(t.dim)
+        .child(this.filter ? "No archived task matches the filter." : "Nothing here yet: archived (x) and deleted (d) tasks show up here.")))
+      .children(list.map((x, i) => {
+        const sel = i === v.i;
+        const facts = [x.deleted ? `deleted ${date(x.deleted)}` : `archived ${date(x.archived ?? x.updated ?? 0)}`, `from ${colName(x.column)}`,
+          x.agents?.length ? `${x.agents.length} agent${x.agents.length > 1 ? "s" : ""}` : null, x.notes ? x.notes.split("\n")[0] : null].filter(Boolean).join(" · ");
+        return h_flex().id(`arow-${i}`).w(W).px(10).py(8).gap(10).items_center().rounded(8).border(1)
+          .border_color(sel ? t.accent : t.border).bg(t.surface).cursor_pointer()
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { v.i = i; this.focus.focus(); cx.notify(); })
+          .child(v_flex().flex_1().min_w(0).gap(2)
+            .child(div().truncate().text_size(13).text_color(x.deleted ? t.muted : t.foreground).child(x.title))
+            .child(div().truncate().text_size(11).text_color(t.dim).child(facts)))
+          .child(this.kbd(t, "r", sel))
+          .child(this.chip(t, `restore-${i}`, "Restore", false, (cx) => this.restore(x.id, cx)));
+      }));
+  }
+
   bottomBar(t) {
     const b = this.bar;
-    if (!b) return null;
+    if (!b && !this.attach) return null;
     const box = h_flex().id("bar").flex_none().h(36).px(14).gap(10).items_center().border_t(1).border_color(t.border).bg(t.chrome).text_size(12.5).text_color(t.foreground);
+    if (this.attach) return box.child(`Add "${this.attach.name}" to a task: move to it (h j k l), enter adds it`).child(div().flex_1())
+      .child(this.chip(t, "attach-x", "Cancel (esc)", false, () => { this.attach = null; }));
     if (b.kind === "note") return box.child(b.text).child(div().flex_1()).child(this.chip(t, "bar-ok", "OK", false, () => { this.bar = null; }));
-    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
+    if (b.kind === "help") return box.child(div().text_color(t.dim).child(`Corral Board ${BUILD}`)).child(div().text_color(t.muted).child("h l columns · j k cards · H L move · K J reorder · m move to… · space done · n new · e rename · i notes · a launch · enter agents (j k · enter opens · o its PR · a launch · d/x off the task) · 1–9 agent · x archive · d delete · X clear done · u undo · U redo · A archive view · t add an Inbox agent to a task · / filter · ? close")).child(div().flex_1()).child(this.chip(t, "bar-x", "Close", false, () => { this.bar = null; }));
     if (b.kind === "move") return box.child("Move to:").children((this.cols ?? []).slice(1).map((c, i) => div().text_color(t.muted).child(`${i + 1} ${c.name}`)));
     return box.child(b.text)
       .when(!!b.never, (el) => el.child(this.chip(t, "bar-never", `${b.neverOn ? "☑" : "☐"} Don't ask again`, false, () => { b.neverOn = !b.neverOn; })))
@@ -1000,6 +1265,12 @@ export default class Board extends View {
       const i = cols[this.follow.c]?.items.findIndex((x) => x.kind === "task" && x.task.id === this.follow.id) ?? -1;
       if (i >= 0) { this.sel = { c: this.follow.c, i }; this.follow = null; }
     }
+    // A text box that held the keyboard and is gone now (its card closed, say): the board takes the keyboard.
+    if (this.inputs.size) {
+      const live = this.liveInputs();
+      const gone = [...this.inputs].filter((x) => !live.has(x));
+      if (gone.length) { for (const x of gone) this.inputs.delete(x); if (!this.inputs.size) this.wakeFocus?.(); }
+    }
     const inOverlay = !!props()?.overlay;
     // Focus can't move during render: do it from a task, right after. Asked for by flip() through shared state,
     // because a hidden copy doesn't render and can't notice it became visible.
@@ -1044,6 +1315,12 @@ export default class Board extends View {
         .child(this.kbd(t, "/"))
         .child(div().w(180).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.filterState).h(26).px(8).items_center().rounded(6).border(1).border_color(t.input).bg(t.background).text_size(12)))
         .child(div().flex_1())
+        .child(this.kbd(t, "u"))
+        .child(this.chip(t, "undo", "↶ Undo", false, (cx) => this.undo(cx)))
+        .child(this.kbd(t, "U"))
+        .child(this.chip(t, "redo", "↷ Redo", false, (cx) => this.undo(cx, true)))
+        .child(this.kbd(t, "A"))
+        .child(this.chip(t, "archive", "Archive", !!this.archiveView, () => { this.archiveView = this.archiveView ? null : { i: 0 }; this.focus.focus(); }))
         .child(this.chip(t, "new-task", "+ Task", false, (cx) => this.addTask(this.board.columns[0]?.id, cx)))
         .child(this.chip(t, "keys", "?", this.bar?.kind === "help", () => { this.bar = this.bar?.kind === "help" ? null : { kind: "help" }; }))
         .child(inOverlay
@@ -1054,7 +1331,8 @@ export default class Board extends View {
         .child(s.error ?? "This board was made by a newer Corral Board; it is shown read-only.")))
       // Sideways scrolling is ours: only a swipe's horizontal part (or shift + wheel) moves the board,
       // so a vertical swipe that reaches a column's end never turns into a sideways scroll.
-      .child(div().id("cols-view").flex_1().min_h(0).w_full().relative().overflow_hidden()
+      .when(!!this.archiveView, (el) => el.child(this.archivePanel(t)))
+      .when(!this.archiveView, (el) => el.child(div().id("cols-view").flex_1().min_h(0).w_full().relative().overflow_hidden()
         .on_size_change((size, cx) => { this.viewW = size.width; cx.notify(); })
         .on_scroll_wheel((e, cx) => {
           const dx = e.modifiers?.shift && !e.delta.x ? e.delta.y : e.delta.x;
@@ -1063,8 +1341,8 @@ export default class Board extends View {
           const next = Math.max(0, Math.min(max, (this.scrollX ?? 0) - dx));
           if (next !== this.scrollX) { this.scrollX = next; cx.notify(); }
         })
-        .child(h_flex().id("cols").absolute().top(0).bottom(0).left(-(this.scrollX ?? 0)).p(10).gap(10).items_start()
-          .children(cols.map((c) => this.column(t, c, now)))))
+        .child(h_flex().id("cols").absolute().top(0).bottom(0).left(-(this.scrollX ?? 0)).p(10).gap(10).items_stretch()
+          .children(cols.map((c) => this.column(t, c, now))))))
       .when(!!this.bottomBar(t), (el) => el.child(this.bottomBar(t)))
       .when(!!ghost, (el) => el.child(ghost));
   }

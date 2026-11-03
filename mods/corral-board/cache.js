@@ -5,6 +5,22 @@
 import { exec, home, machines, readTextFile, watchFolder } from "herdr";
 
 const TAIL_BYTES = "2000000";
+
+// Pull/merge request links: GitHub, GitLab, Bitbucket Cloud and Bitbucket Server/Data Center.
+const PR_RE = /https?:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/-\/merge_requests\/\d+|bitbucket\.org\/[\w.-]+\/[\w.-]+\/pull-requests\/\d+|[\w.-]+(?:\/[\w.~-]+)*?\/projects\/[\w~.-]+\/repos\/[\w.-]+\/pull-requests\/\d+)/g;
+
+// The PR links in some text, in order of appearance, each once (its last appearance counts).
+export function prLinks(text) {
+  const seen = [];
+  for (const m of text.matchAll(PR_RE)) { const u = m[0]; const i = seen.indexOf(u); if (i >= 0) seen.splice(i, 1); seen.push(u); }
+  return seen;
+}
+
+// "PR #12" (GitLab: "MR !12").
+export function prLabel(url) {
+  const n = url.match(/(\d+)$/)?.[1];
+  return url.includes("/merge_requests/") ? `MR !${n}` : `PR #${n}`;
+}
 const TTL = { "1h": 3600000, "5m": 300000 };
 
 // The machine a terminal address lives on (`machine/t4`), null for this one.
@@ -13,7 +29,7 @@ const keyOf = (term) => (term?.foreground?.pid ? `${machineOf(term.address) ?? "
 
 // On another machine: prints the transcript's size, then the lines that matter from its tail, or
 // exits 3 when the size is still what we read last time (nothing new to send over ssh).
-const REMOTE_READ = `s=$(wc -c < "$1") || exit 1; [ "$s" = "$2" ] && exit 3; echo "$s"; tail -c "$3" "$1" | grep -F -e '"assistant"' -e '"api-request"'; exit 0`;
+const REMOTE_READ = `s=$(wc -c < "$1") || exit 1; [ "$s" = "$2" ] && exit 3; echo "$s"; tail -c "$3" "$1" | grep -F -e '"assistant"' -e '"api-request"' -e '/pull/' -e '/pull-requests/' -e '/merge_requests/'; exit 0`;
 
 export class Cache {
   constructor() {
@@ -107,8 +123,10 @@ export class Cache {
   parse(e, lines) {
     let last = null;
     let ttl = null;
+    const prs = [];
     for (const line of lines) {
       if (!line.startsWith("{")) continue;
+      if (line.includes("/pull") || line.includes("/merge_requests/")) prs.push(...prLinks(line));
       if (!line.includes('"assistant"') && !line.includes('"api-request"')) continue;
       let j;
       try { j = JSON.parse(line); } catch { continue; }
@@ -117,6 +135,8 @@ export class Cache {
         ttl = (j.cacheControl ?? []).some((c) => c?.value?.ttl === "1h") ? "1h" : "5m";
       }
     }
+    // The last three PR links the conversation mentions, newest last.
+    if (prs.length) e.prs = prLinks(prs.join(" ")).slice(-3);
     e.ttl = ttl ?? e.ttl ?? "5m";
     // A tail with no assistant reply in it keeps what an earlier read found.
     e.expires = last ? Date.parse(last) + TTL[e.ttl] : e.expires;

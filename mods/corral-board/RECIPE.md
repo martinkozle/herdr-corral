@@ -96,6 +96,19 @@ One full-size view on `canvas`, top to bottom:
   a tab named after the task ("<title> 2", "3"… for later agents) in that
   space, sends the message if there is one, adds the agent to the task, and
   goes to it.
+  - Keys: the message box has the keyboard; `esc` leaves it, then `s` / `p`
+    open the space / agent picker (`j` `k`, `enter` picks, `esc` closes it),
+    `w` toggles a new worktree, `i` goes back to the message,
+    `enter` launches, `esc` closes the form. One control per row (space and agent, each under a small label; message;
+    worktree), each with its faint key hint in one gutter on the left (hidden while typing). No separate key line: `esc` and the Launch ↵ button cover the rest.
+  - **New worktree** (☐ checkbox, `w`): a branch field (Enter launches). The
+    agent starts in a git worktree where Herdr's worktree mod keeps them,
+    `~/.herdr/worktrees/<repo>/<branch, slashes as dashes>` (so that mod's
+    open and remove find it), made from the space's folder (its first
+    terminal's folder, else where it was made): an existing branch is checked
+    out, a new one starts at that folder's HEAD; a checkout already at that
+    path is reused. The tab stays in the chosen space. On another machine,
+    git runs there.
 - **Resume:** `claude --resume <session>` (Codex: `codex resume <session>`)
   in a new tab in the agent's old folder, on the machine it ran on (its old space, else a space on that
   machine; none open: a note says so); the row then follows the new agent.
@@ -104,8 +117,28 @@ One full-size view on `canvas`, top to bottom:
 - **Column menu (⋯):** Rename, Move left, Move right, Add column before, Add
   column after, Delete column. Deleting a column that holds tasks is refused.
 - **Archive** (`x`, or ⋯): the task leaves the board into the file's archive.
-  **Delete** (`d`, or ⋯) asks first. **Clear** archives everything in Done.
-  There's no archive view yet.
+  **Delete** (`d`, or ⋯) asks first, then also moves it there, marked
+  `deleted` (dropped after 30 days). **Clear** archives everything in Done.
+- **Archive view** ("Archive" in the header, or `A`): replaces the columns
+  with a 640px list of archived and deleted tasks, newest first (title; when,
+  from which column, agents, the notes' first line), through the filter.
+  `j` `k` select, `r`/`enter` or "Restore" puts one back at the end of its
+  column (the first column if that's gone), `esc` closes. Its agents' labels
+  were never cleared, so live ones rejoin it.
+- **Undo** ("↶ Undo" in the header, or `u`): puts back the board as it was
+  before this window's last change, up to 50 steps (in memory: since the
+  window opened). The board's own saves (agents rejoining, sessions and PR
+  links recorded) aren't steps: they are replayed onto the undo history so
+  undo keeps them. If the file changed elsewhere since, undo stops and says
+  so (backups remain). Terminal labels follow the undo. **Redo** ("↷ Redo",
+  `U` or `ctrl-r`) puts an undone step back, under the same rule; a new
+  change drops what's left to redo. After either, the board has the keyboard
+  and a task the step moved (or brought back) is selected.
+- **PR links:** the last three pull/merge request links each agent printed
+  (GitHub, GitLab, Bitbucket Cloud and Server/Data Center) show under its
+  name as chips ("PR #12", "MR !7"), newest first; a click (or `o` while the
+  row is picked) opens it in the browser. They stay on the row after the
+  agent ends.
 - **Filter:** shows tasks whose title, notes or agent names contain the text,
   and Inbox entries whose name does.
 - **Keys** (only while the board has the keyboard; text fields take every key):
@@ -123,11 +156,15 @@ One full-size view on `canvas`, top to bottom:
   | `e` | rename the card (an Inbox entry: make it a task) |
   | `i` | edit the card's notes |
   | `a` | launch an agent from the card |
-  | `enter` | pick one of the card's agents: `j` `k` move, `enter` goes to it or resumes it, `d`/`x` take it off the task, anything else leaves (only `h` `l` carry on) |
+  | `enter` | pick one of the card's agents: `j` `k` move, `enter` goes to it or resumes it, `o` opens its newest PR link, `a` opens the launch form, `d`/`x` take it off the task, anything else leaves (only `h` `l` carry on) |
+  | `t` | on an Inbox agent: add it to an existing task. Move to the task with the usual keys; `enter` adds it, `esc` cancels (the bottom bar says so) |
   | `1`–`9` | go to (or resume) the card's Nth agent |
   | `x` | archive the card |
   | `d` | delete the card (asks) |
   | `X` | archive everything in Done (asks) |
+  | `u` | undo |
+  | `U` / `ctrl-r` | redo |
+  | `A` | the Archive view |
   | `/` | filter; `esc` clears it |
   | `?` | key help (again: closes) |
 
@@ -219,6 +256,18 @@ One full-size view on `canvas`, top to bottom:
 
 ## Watch out
 
+- `node --check main.js` passed a file missing a `)` that Herdr's parser
+  rejected ("Unexpected token ';'", at a column past the line's end). Run
+  `herdr-app check` (dev-sync does) and trust it, not node.
+- PR links: Claude's come from its transcript tail (so also links it only
+  read, e.g. a `gh pr list`); other agents' from their screen at each 30s
+  tick (`hc read --json`; Claude's screen has no scrollback): a link that
+  scrolls away between ticks, or wraps across lines, is missed.
+- A first message that's filled in but not sent isn't possible: `hc send`
+  and `tab.new {task}` always press Enter, `hc keys` presses named keys only,
+  `terminal.paste` uses the clipboard, and `claude`/`codex` take a prompt
+  only to send it.
+
 - **Hot reload doesn't follow a symlinked mod folder.** Copy the folder into
   `mods/` (this repo: `scripts/dev-sync.sh`), and bump `BUILD` in `main.js` on
   every change: the header shows which build is running.
@@ -234,6 +283,19 @@ One full-size view on `canvas`, top to bottom:
   again 120ms after flipping.
 - **`pane.focus` then `focused()`:** `focused()` hasn't caught up yet; refocusing
   "the focused pane" right after a `pane.focus` undoes it.
+- **A text box that disappears while it has the keyboard sends no `blur`**
+  (its card closed, the branch field hidden, an undo). Counting focus/blur
+  events got stuck "typing" and swallowed every board key. The board now keeps
+  the set of focused boxes, drops it whenever its own handle `is_focused()`,
+  and hands the keyboard back when a focused box is no longer drawn.
+- **Herdr's Tab moves focus through the whole window** (the filter box, then
+  out of the board, where its keys no longer arrive) before the board's own
+  key handler can stop it, and `tab_stop(false)` is not wired on `Input`
+  (check warns). So the board doesn't use Tab; `i` and `esc` move in and out
+  of the message box.
+- **Columns stretch** (`items_stretch` on the row) rather than `h_full()`,
+  which sized them to the row's full height plus its padding and left a
+  little scroll at every column's end.
 - **`cx.bind_keys` bindings are app-wide and outlive the mod** (until Herdr
   restarts); a removed one fails as an unknown command. Don't use them.
 - **A textarea's `submit` fires on every Enter**, with `shift` / `secondary`
