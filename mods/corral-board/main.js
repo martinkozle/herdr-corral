@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1-dev.9";
+const BUILD = "0.1.1";
 
 function find(node, id) {
   if (node?.id === id) return node;

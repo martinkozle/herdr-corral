@@ -13,7 +13,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.0`, the first version in daily use. Built on herdr-app 0.1.12.
+Status: `0.1.1`, in daily use. Built on herdr-app 0.1.12.
 
 ## Use the whole setup
 

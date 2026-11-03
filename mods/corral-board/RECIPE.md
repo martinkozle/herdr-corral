@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.0`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.1`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.0`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.1`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -24,7 +24,7 @@ One full-size view on `canvas`, top to bottom:
   waits for you (idle, done or blocked) with a warm cache: "Next up" (11px
   `dim`), then one chip per such agent, soonest expiry first: space tile, the
   task's name (else the agent's), status, cache badge. A click goes to the
-  agent. *(0.1.1, not yet seen with a qualifying agent.)*
+  agent.
 - **Columns**, 280px wide, 10px apart, starting 10px in. Each scrolls
   vertically on its own; the row of columns scrolls sideways.
   - **Column header** (32px): name (12px medium `muted`), task count (11px
