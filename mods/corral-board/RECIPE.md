@@ -47,8 +47,8 @@ One full-size view on `canvas`, top to bottom:
       space's tile (13px square, its first letter on its color) and name
       (10.5px `dim`);
     - right, stacked: the status, and under it the cache badge; then "×".
-  - **Ended** rows: name in `dim`, "ended" on the right. An ended Claude agent
-    whose conversation is on disk instead shows "↻ resume" and a dashed
+  - **Ended** rows: name in `dim`, "ended" on the right. An ended Claude or
+    Codex agent whose session is known instead shows "↻ resume" and a dashed
     `input` border.
 - **Inbox card**: a dashed-looking card (`background`, `input` border) with
   the agent's name, its icon, space tile and name, cache badge and status.
@@ -96,8 +96,8 @@ One full-size view on `canvas`, top to bottom:
   a tab named after the task ("<title> 2", "3"… for later agents) in that
   space, sends the message if there is one, adds the agent to the task, and
   goes to it.
-- **Resume:** `claude --resume <session>` in a new tab in the agent's old
-  folder, on the machine it ran on (its old space, else a space on that
+- **Resume:** `claude --resume <session>` (Codex: `codex resume <session>`)
+  in a new tab in the agent's old folder, on the machine it ran on (its old space, else a space on that
   machine; none open: a note says so); the row then follows the new agent.
 - **"×" on an agent row** (or `d`/`x` while it's picked): the agent leaves the
   task and goes back to the Inbox. Its terminal keeps running.
@@ -144,7 +144,7 @@ One full-size view on `canvas`, top to bottom:
 ## Built from
 
 - **Folder** `mods/corral-board/`: `main.js` (the view), `store.js` (load,
-  migrate, save, backups), `cache.js` (Claude cache), `mod.json` `{ "place":
+  migrate, save, backups), `cache.js` (Claude cache), `codex.js` (Codex sessions), `mod.json` `{ "place":
   "none", "title": "Corral Board", "focusable": true, "overlay": { "kind":
   "window", "width": 0.9, "height": 0.85 } }`, `jsconfig.json` (`checkJs`).
   Plain JavaScript, no npm packages, no bundler.
@@ -199,6 +199,15 @@ One full-size view on `canvas`, top to bottom:
   and no watcher (local only): every 30s tick runs one `sh -c` there that
   exits 3 when the transcript's size is unchanged, else prints the size and
   the tail's `assistant`/`api-request` lines.
+- **Codex sessions** (`codex.js`, for resume; no cache badge): Codex records
+  no process → session link (its TUI writes through a shared `codex
+  app-server` daemon and logs without a thread id), so it is matched: every
+  30s, one `bash -c` per machine with live Codex agents prints each process's
+  `ps -o etime=` and the first line (`session_meta`: `id`, `timestamp`, `cwd`,
+  `thread_source`) of every `~/.codex/sessions/**/rollout-*.jsonl` changed
+  since the oldest started. Each agent takes the newest unclaimed user
+  session in its folder started at most 10s before its process, newest
+  process first; none: the id after `codex resume` in its argv.
 - **Space tiles:** the first letter of the space's name on the color the
   shipped `spaces` mod assigned (shared `"space.colors"`: id → `ansiN`), from
   a copy of its table: `ansi6 #22a99a`, `ansi3 #e3814f`, `ansi4 #5b8def`,
@@ -248,8 +257,15 @@ One full-size view on `canvas`, top to bottom:
   to compare agents. Codex and OpenCode agents get no cache badge. Remote
   badges lag up to 30s behind a reply (polled, not watched).
 - Remote Claude cache and resume were built without a Claude agent ever
-  running on another machine (2026-11-03: only Codex on `martinkozle`): they
-  rest on remote `foreground.pid` being that machine's pid, unverified.
+  running on another machine (2026-11-03: only Codex on `martinkozle`).
+  The pid part holds: `hc get m/t1` gives that machine's own pid as
+  `foreground.pid` (checked with `ps` there), and mods' `terminals()` carry it
+  for remote terminals (Codex resume on `martinkozle` relies on it and works).
+  `hc ls --json` leaves `foreground` out for every terminal.
+- The Codex session match is a guess from folder and start time: two Codex
+  agents started in one folder within ~10s can swap sessions. Herdr's own
+  Codex hook reports the exact id, but only to the app, and mods can't read it
+  (and it doesn't run on remote machines: no `HERDR_PANE_ID` there).
 - `board.json` must stay under 1 MiB (`readTextFile`); the archive is what
   grows.
 

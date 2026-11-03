@@ -6,6 +6,7 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui
 import { agents, terminals, spaces, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared } from "herdr";
 import { Store, newId, DIR } from "./store.js";
 import { Cache, warmth, warmthColor } from "./cache.js";
+import { Codex } from "./codex.js";
 
 const ICONS = "mods/workspace-chrome";
 const COL_W = 280;
@@ -13,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1-dev.2";
+const BUILD = "0.1.1-dev.3";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -82,6 +83,7 @@ export default class Board extends View {
     }
     this.store = new Store();
     this.cache = new Cache();
+    this.codex = new Codex();
     this.focus = cx.focus_handle();
     this.sel = { c: 1, i: 0 };
     this.open = null;      // the opened task's id
@@ -118,6 +120,7 @@ export default class Board extends View {
     });
     const tick = (cx) => cx.spawn(async (cx) => {
       await this.cache.refresh(terminals(), cx, () => {});
+      await this.codex.refresh(terminals(), new Set(machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name)));
       await this.adopt();
       await this.recordSessions();
       cx.notify();
@@ -158,28 +161,31 @@ export default class Board extends View {
     });
   }
 
-  // Remembers each live Claude agent's session and folder on its row: what `claude --resume` needs later.
+  // Remembers each live Claude or Codex agent's session and folder on its row: what resuming needs later.
   async recordSessions() {
     const terms = new Map(terminals().map((x) => [x.address, x]));
     const ups = [];
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
       if (term?.labels?.["corral.task"] !== t.id) continue;
-      const info = this.cache.info(term);
-      // Resumable only once the conversation is on disk: Claude writes it with the first message, and
-      // `claude --resume` refuses a session that has none.
-      if (info?.sid && info.path && (r.session !== info.sid || r.cwd !== info.cwd)) ups.push([t.id, r.address, info.sid, info.cwd]);
+      const app = term.report?.app;
+      // Claude: resumable only once the conversation is on disk (written with the first message;
+      // `claude --resume` refuses a session that has none). Codex writes its session file at start.
+      const c = app === "claude-code" ? this.cache.info(term) : app === "codex" ? this.codex.info(term) : null;
+      const info = c?.sid && (app !== "claude-code" || c.path) ? c : null;
+      if (info && (r.session !== info.sid || r.cwd !== info.cwd || r.app !== app)) ups.push([t.id, r.address, info.sid, info.cwd, app]);
     }
     if (!ups.length) return;
     await this.store.change((b) => {
-      for (const [tid, addr, sid, cwd] of ups) {
+      for (const [tid, addr, sid, cwd, app] of ups) {
         const r = b.tasks.find((x) => x.id === tid)?.agents.find((x) => x.address === addr);
-        if (r) { r.session = sid; r.cwd = cwd; r.app = "claude-code"; }
+        if (r) { r.session = sid; r.cwd = cwd; r.app = app; }
       }
     });
   }
 
-  // Starts an ended Claude agent again with its conversation: `claude --resume <session>` in its folder.
+  // Starts an ended agent again with its conversation, in its folder: `claude --resume <session>` or
+  // `codex resume <session>`.
   async revive(taskId, row, cx) {
     const task = this.task(taskId);
     // The conversation lives on the machine the agent ran on: resume there, never on another machine.
@@ -189,7 +195,8 @@ export default class Board extends View {
     if (!task || !row.session) return;
     if (!space) { this.bar = { kind: "note", text: `Couldn't resume: no space open on ${m ?? "this computer"}` }; cx.notify(); return; }
     try {
-      const args = { space: space.id, name: row.name, argv: ["claude", "--resume", row.session] };
+      const argv = row.app === "codex" ? ["codex", "resume", row.session] : ["claude", "--resume", row.session];
+      const args = { space: space.id, name: row.name, argv };
       if (row.cwd) args.folder = row.cwd;
       const r = await exec("herdr-app", ["do", "tab.new", JSON.stringify(args)]);
       const out = JSON.parse(r.stdout || "{}");
@@ -629,7 +636,7 @@ export default class Board extends View {
         .on_click((_e, cx) => { cx.stop_propagation(); if (!this.wasDrag()) this.goTo(a); }))
       // An ended Claude agent: dashed, and a click resumes its conversation in a new tab.
       .when(resumable, (el) => el.border(1).border_dashed().border_color(t.input).cursor_pointer().hover((s) => s.bg(t.hover))
-        .tooltip("Resume this conversation (claude --resume)")
+        .tooltip("Resume this conversation")
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); if (!this.wasDrag()) cx.spawn((cx) => this.revive(taskId, row, cx)); }))
       .child(div().pt(1).w(8).flex_none().child(this.kbd(t, num, hints)))
