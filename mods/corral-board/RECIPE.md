@@ -125,6 +125,16 @@ One full-size view on `canvas`, top to bottom:
   `j` `k` select, `r`/`enter` or "Restore" puts one back at the end of its
   column (the first column if that's gone), `esc` closes. Its agents' labels
   were never cleared, so live ones rejoin it.
+- **Status outlines:** a live agent row (and an Inbox card) waiting on you
+  is outlined: done (finished, not looked at yet) in the done color, needs
+  you in the blocked color, idle (finished and seen) in a faint done color.
+  Working agents get an outline in the working (spinner) color that slowly
+  breathes between part and full strength (a full outline fading in and out
+  over a part-colored border) (`loop("opacity")`, native). A line travelling round the
+  border isn't possible: Herdr animates only opacity, size and position, and
+  spins only SVGs.
+- **A cache badge nearly out** (under a fifth of its time left: about 12
+  minutes of a 1h cache, 1 of a 5m one) breathes the same way, a little faster.
 - **Undo** ("↶ Undo" in the header, or `u`): puts back the board as it was
   before this window's last change, up to 50 steps (in memory: since the
   window opened). The board's own saves (agents rejoining, sessions and PR

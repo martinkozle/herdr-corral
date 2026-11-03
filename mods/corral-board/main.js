@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.1-dev.8";
+const BUILD = "0.1.1-dev.9";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -812,6 +812,16 @@ export default class Board extends View {
 
   // ---- drawing ----
 
+  // An outline for an agent that's waiting on you: done (finished, not looked at yet) strongest, needs you in
+  // its own color, idle (finished and seen) faint. A working agent's is part yellow and breathes (agentRow).
+  tone(t, s) {
+    if (s === "blocked") return alpha(t.blocked, "cc");
+    if (s === "done") return alpha(t.done, "cc");
+    if (s === "idle") return alpha(t.done, "55");
+    if (s === "working") return alpha(t.working, "66"); // the floor of its breathing outline
+    return null;
+  }
+
   status(t, s, reason) {
     if (s === "working") return svg(`${ICONS}/spinner.svg`).size(12).mx(1).flex_none().text_color(t.working).spin(900);
     if (s === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(alpha(t.blocked, "26")).text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you").when(!!reason, (el) => el.id(`r-${Math.random()}`).tooltip(reason));
@@ -825,7 +835,10 @@ export default class Board extends View {
     if (!w) return null;
     if (w.cold) return div().flex_none().text_size(10.5).text_color(t.dim).child("cold");
     const c = warmthColor(t, w.share);
-    return div().flex_none().px(5).h(16).rounded(4).bg(alpha(c, "33")).text_color(c).text_size(10.5).font_semibold().flex().items_center().child(w.text);
+    // Nearly out (the red end): it breathes, like a working agent's outline, a little faster.
+    return div().flex_none().px(5).h(16).rounded(4).bg(alpha(c, "33")).text_color(c).text_size(10.5).font_semibold().flex().items_center()
+      .when(w.share < 0.2, (el) => el.loop("opacity", { from: 0.35, to: 1, period: 1200 }))
+      .child(w.text);
   }
 
   agentRow(t, row, st, now, hovered, taskId, picked, num, showX, hints) {
@@ -837,6 +850,12 @@ export default class Board extends View {
     // Each agent is its own faint block (live ones tinted), so neighbours read apart without inner borders.
     return h_flex().id(`ar-${row.address}`).gap(6).px(4).py(4).rounded(6).items_start().text_size(12)
       .when(st.state !== "ended" && !picked, (el) => el.bg(alpha(t.foreground, "0a")))
+      // Always a 1px border on live rows (clear while working), so a status change doesn't shift the row.
+      .when(live, (el) => el.border(1).border_color(this.tone(t, a.status) ?? alpha(t.foreground, "00")))
+      // Working: a yellow outline that breathes between part and full yellow: a full one fading in and out over
+      // the row's own part-yellow border (Herdr animates opacity natively; a line running round isn't possible).
+      .when(live && a.status === "working", (el) => el.relative().child(div().absolute().top(-1).left(-1).right(-1).bottom(-1)
+        .rounded(6).border(1).border_color(t.working).loop("opacity", { from: 0, to: 1, period: 1600 })))
       .when(picked, (el) => el.bg(t.selected))
       .when(live, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
         // A row can be dragged to another task, a column (a new task) or the Inbox (out of its task).
@@ -973,7 +992,7 @@ export default class Board extends View {
     if (item.kind === "inbox") {
       const a = item.agent;
       const term = this.terms.get(a.address);
-      return base.border_color(selected ? t.accent : t.input).bg(t.background)
+      return base.border_color(selected ? t.accent : this.tone(t, a.status) ?? t.input).bg(t.background)
         .child(this.rename?.kind === "inbox" && this.rename.id === a.address ? this.field(t, this.rename.state) : div().text_size(13).text_color(t.foreground).child(agentName(a)))
         .child(h_flex().gap(6).items_center().text_size(11).text_color(t.dim)
           .when(!!icon(a.program, 13, t.foreground), (el) => el.child(icon(a.program, 13, t.foreground)))
