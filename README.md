@@ -4,6 +4,8 @@ My setup for the [Herdr app](https://herdr.dev): a Kanban board where your
 tasks hold the coding agents you start for them, packaged as a layout plus
 small mods. Each mod works on its own.
 
+![Corral Board with a demo board](preview.png)
+
 - **Corral Board** (`mods/corral-board`): your own columns and tasks; each
   task holds its agents with their Herdr status, a Claude prompt-cache
   countdown and the PR links they printed; an Inbox of agents not on a task
@@ -13,7 +15,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.1`, in daily use. Built on herdr-app 0.1.12.
+Status: `0.1.2`, in daily use. Built on herdr-app 0.1.12.
 
 ## Use the whole setup
 
@@ -62,4 +64,3 @@ look at it (`herdr-app shot`).
   names. Experimental, may never ship.
 - Resume for OpenCode; a cache countdown for Codex and OpenCode, if they ever
   state their cache lifetime.
-- `preview.png` for the layout and the board (from a demo board).
