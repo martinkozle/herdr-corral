@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.6`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.7`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.6`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.7`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), a faint `/` hint, the
   filter field (180px, "Filter tasks"), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -313,6 +313,10 @@ reload again.
 
 ## Watch out
 
+- **Take the keyboard once per request, never per render.** As a popup
+  (`mod.open:corral-board`) nothing sets `corral.focusAt`; a check that
+  stayed true on every render refocused the board each time and pulled the
+  keyboard out of a new task's text box, which then closed empty (issue #1).
 - `node --check main.js` passed a file missing a `)` that Herdr's parser
   rejected ("Unexpected token ';'", at a column past the line's end). Run
   `herdr-app check` (dev-sync does) and trust it, not node.

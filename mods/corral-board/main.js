@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.6";
+const BUILD = "0.1.7";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -1467,9 +1467,12 @@ export default class Board extends View {
     const ask = shared("corral.focusAt") ?? 0;
     // Only once actually shown (the request can arrive while the stack still shows the terminals), and again
     // shortly after, in case the app hands the keyboard back to the terminal pane after the switch.
+    // Once per request, plus once when first shown as a popup (nothing asks there): grabbing it on every
+    // render would pull the keyboard out of a text box the moment it opens (issue #1).
     const shown = inOverlay || find(layout(), "corral-view")?.active === "board";
-    if (shown && (ask !== this.focusedAt || (inOverlay && !this.focusedAt))) {
-      this.focusedAt = ask || 1;
+    if (shown && ((ask && ask !== this.focusedAt) || (inOverlay && !this.overlayFocused))) {
+      this.focusedAt = ask;
+      this.overlayFocused = inOverlay;
       this.wakeFocus?.();
     }
     const ghost = this.drag && this.press && this.mouse && this.origin
