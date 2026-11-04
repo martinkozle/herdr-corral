@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.14`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.15`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.14`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.15`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -190,7 +190,10 @@ One full-size view on `canvas`, top to bottom:
   close together, a dev and a prod PR say, stay lit, and links without a
   recorded time are never dimmed). By mouse: after the unpicked links a dim
   "+N more" chip (or "⋯" when none are hidden) picks the row, and "less"
-  under the picked list unpicks it. A click opens
+  under the picked list unpicks it. In the picked list, a click on a group's
+  name opens its repository (the PR link without its `/pull/N`,
+  `/-/merge_requests/N` or `/pull-requests/N`) or Jira project
+  (`/browse/KEY`). Mouse only, by choice: it's one click from any PR anyway. A click opens
   any chip. A chip is `accent` (text, and the tint behind at `1a`), or for a
   GitHub PR whose state is known, GitHub's color for it: open `#3fae6a`,
   merged `#8b7cf6`, closed `#f85149`, draft the theme's `muted` (the tooltip

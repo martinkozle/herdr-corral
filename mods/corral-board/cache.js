@@ -28,6 +28,11 @@ export function repoOf(url) {
     ?? null;
 }
 
+// The page a link's group opens: the repository a PR is in, the project a Jira issue is in (`/browse/KEY`).
+export function groupUrl(url) {
+  return url.replace(/\/(?:-\/merge_requests|pull|pull-requests)\/\d+$/, "").replace(/(\/browse\/[A-Z][A-Z0-9_]+)-\d+$/, "$1");
+}
+
 // "web-app #12" (GitLab: "web-app !12"); a Jira link: its key, "PROJ-12".
 export function prLabel(url) {
   const jira = url.match(/\/browse\/([A-Z][A-Z0-9_]+-\d+)$/)?.[1];

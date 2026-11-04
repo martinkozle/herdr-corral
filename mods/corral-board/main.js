@@ -5,7 +5,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props, layout, closeOverlay, nextCommand, knownAgents, watchFolder, focused, shared, setShared, readTextFile } from "herdr";
 import { Store, newId, DIR } from "./store.js";
-import { Cache, warmth, warmthColor, prLinks, prLabel, linkGroup, repoOf } from "./cache.js";
+import { Cache, warmth, warmthColor, prLinks, prLabel, linkGroup, repoOf, groupUrl } from "./cache.js";
 import { Codex } from "./codex.js";
 import { GhPrs } from "./gh.js";
 
@@ -15,7 +15,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.14";
+const BUILD = "0.1.15";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -1265,7 +1265,12 @@ export default class Board extends View {
     // mentioned close together (a dev and a prod PR, say) all stay lit. Unknown age: lit.
     const latest = Math.max(...linksOf(row).map((x) => x.at ?? 0));
     return v_flex().pl(20).gap(6).min_w(0).child(v_flex().gap(6).min_w(0).children(linkGroups(row).map((g) => v_flex().gap(3).min_w(0)
-      .child(div().pl(14).truncate().text_size(10.5).text_color(t.dim).child(g.name))
+      // A click on the group's name opens its repository (or Jira project); mouse only.
+      .child(h_flex().pl(14).min_w(0).child(div().id(`grp-${row.address}-${g.g}`).min_w(0).truncate().text_size(10.5).text_color(t.dim)
+        .cursor_pointer().hover((s) => s.text_color(t.foreground)).tooltip(groupUrl(g.links[0].u))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); openUrl(groupUrl(g.links[0].u)); })
+        .child(g.name)))
       .children(g.links.map((l) => {
         const i = n++;
         return h_flex().gap(6).items_center().min_w(0).when(i >= 9, (el) => el.opacity(0.6))
