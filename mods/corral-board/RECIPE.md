@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.15`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.16`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.15`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.16`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -369,6 +369,11 @@ reload again.
   a blur handler that read those saved the wrong box and closed the new one.
   Bind each handler to its own editor object, and after a box was just given
   the keyboard (`focusBox`), don't take it back for the board.
+- **A new box doesn't scroll to its cursor.** A rename box opened on a long
+  name had the cursor at the end but showed the start: a text box scrolls to
+  its cursor only when the cursor moves after the box is drawn. Opening a
+  box with text (rename, the notes editor), `toEnd` puts the cursor at the
+  end, then 50ms later moves it to the start and back.
 - **The drop line takes no room.** A line inserted between cards pushed the
   card under the mouse down, out from under it, which moved the line, which
   moved the card back: it flickered. It is drawn absolute over the gap, and

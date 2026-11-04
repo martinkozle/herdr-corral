@@ -15,7 +15,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.15";
+const BUILD = "0.1.16";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -250,6 +250,7 @@ export default class Board extends View {
     });
     tick(cx);
     cx.timer.every(30000, tick);
+    this.timer = cx.timer;
   }
 
   // An InputState that keeps board keys off while it has the keyboard.
@@ -279,6 +280,14 @@ export default class Board extends View {
   // Gives a text box the keyboard. For a moment after, the board doesn't take it back: the box that just
   // lost it saves and would refocus the board, and so would the focus retries after a flip.
   focusBox(s) { this.boxAt = Date.now(); this.lastBox = s; s.focus(); }
+  // Puts the cursor after the text, where you'd continue typing, with the end in view. A box only scrolls to
+  // its cursor when the cursor moves after the box is drawn, so it moves there again a moment later (while
+  // `still()`: the box is still open).
+  toEnd(s, value, still) {
+    const end = value.length;
+    s.set_selected_range({ start: end, end });
+    this.timer?.after(50, () => { if (still()) { s.set_selected_range({ start: 0, end: 0 }); s.set_selected_range({ start: end, end }); } });
+  }
   boxJustFocused() { return Date.now() - (this.boxAt ?? 0) < 400; }
   // The board takes the keyboard back from a box that closed, unless another box was just given it.
   refocus(closing) {
@@ -827,6 +836,7 @@ export default class Board extends View {
     s.on("blur", (_e, cx) => this.finishRename(cx, r));
     this.rename = r;
     this.focusBox(s);
+    this.toEnd(s, value, () => this.rename === r);
   }
 
   // Esc: nothing is saved, and a column just added (still "New column") goes away again.
@@ -1310,9 +1320,7 @@ export default class Board extends View {
     s.on("submit", (e, cx) => this.submitted(s, e, () => this.saveNotes(cx, ed), cx));
     this.notesEdit = ed;
     this.focusBox(s);
-    // The cursor goes after the text, where you'd continue typing.
-    const end = (task.notes ?? "").length;
-    s.set_selected_range({ start: end, end });
+    this.toEnd(s, task.notes ?? "", () => this.notesEdit === ed);
   }
 
   // Saves the open notes editor (Save, or clicking away). Esc clears notesEdit first, so nothing is saved.
