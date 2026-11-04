@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.13`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.14`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.13`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.14`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -186,12 +186,16 @@ One full-size view on `canvas`, top to bottom:
   was last mentioned (its own line, so nothing is cut); a long repository name
   shortens with … (the tooltip has the link). And
   a link last mentioned an hour or more before the agent's latest link (in
-  any repository) is dimmed (an earlier round, most likely; links mentioned
+  any repository) fades to 50% opacity (an earlier round, most likely; links mentioned
   close together, a dev and a prod PR say, stay lit, and links without a
   recorded time are never dimmed). By mouse: after the unpicked links a dim
   "+N more" chip (or "⋯" when none are hidden) picks the row, and "less"
   under the picked list unpicks it. A click opens
-  any chip. The row keeps the last ten (`links: [{ u, at }]`, in the order
+  any chip. A chip is `accent` (text, and the tint behind at `1a`), or for a
+  GitHub PR whose state is known, GitHub's color for it: open `#3fae6a`,
+  merged `#8b7cf6`, closed `#f85149`, draft the theme's `muted` (the tooltip
+  names the state). See PR states.
+  The row keeps the last ten (`links: [{ u, at }]`, in the order
   they were last mentioned; older boards' bare URLs still read), and they
   stay after the agent ends. "Newest" is the last mentioned, so a PR the
   agent keeps talking about moves to the front. Only full links with a
@@ -255,7 +259,7 @@ One full-size view on `canvas`, top to bottom:
 ## Built from
 
 - **Folder** `mods/corral-board/`: `main.js` (the view), `store.js` (load,
-  migrate, save, backups), `cache.js` (Claude cache), `codex.js` (Codex sessions), `mod.json` `{ "place":
+  migrate, save, backups), `cache.js` (Claude cache), `codex.js` (Codex sessions), `gh.js` (PR states), `mod.json` `{ "place":
   "none", "title": "Corral Board", "focusable": true, "overlay": { "kind":
   "window", "width": 0.9, "height": 0.85 } }`, `jsconfig.json` (`checkJs`).
   Plain JavaScript, no npm packages, no bundler.
@@ -312,6 +316,14 @@ One full-size view on `canvas`, top to bottom:
   and no watcher (local only): every 30s tick runs one `sh -c` there that
   exits 3 when the transcript's size is unchanged, else prints the size and
   the tail's `assistant`/`api-request` lines.
+- **PR states** (`gh.js`): every copy of the board, on its 30s tick, asks
+  `gh api graphql` (this computer's `gh` and login, tried as `gh`, then
+  `/opt/homebrew/bin/gh`, `/usr/local/bin/gh`) about the github.com PRs on
+  the board's tasks, one query with a `resource(url:)` alias per PR (at most
+  50, newest first), each PR again after 5 minutes. A PR the login can't see
+  comes back null and stays unknown. In memory only. No `gh`: never asked
+  again until the board reloads. GitLab, Bitbucket and GitHub Enterprise links
+  get no state.
 - **Codex sessions** (`codex.js`, for resume; no cache badge): Codex records no process → session link (its TUI writes through a shared `codex
   app-server` daemon and logs without a thread id), so it is matched: every
   30s, one `bash -c` per machine with live Codex agents prints each process's

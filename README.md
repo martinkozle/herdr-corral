@@ -15,7 +15,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.13`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
+Status: `0.1.14`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
 Claude agent on another machine (its cache countdown and resume; Codex there
 works).
 
@@ -45,7 +45,9 @@ worktree), `open`/`xdg-open` (a link you click), and `find`, `tail`, `ls`,
 agents on the board). It reads Codex's `~/.codex/sessions/` too. It reads Claude Code's
 `~/.claude/sessions/` and `~/.claude/projects/` (for the cache countdown and
 resume) and keeps its data in `~/.config/herdr-app/corral/` (`board.json`
-plus its last 50 versions in `backups/`). No network.
+plus its last 50 versions in `backups/`). Its only network use: if GitHub's
+`gh` is installed and logged in, it asks GitHub (as you) every few minutes
+whether the board's github.com PRs are open, draft, merged or closed.
 
 Undo (`u`) and redo (`U`) cover the board window's own changes since it opened. For
 anything older, restore a file from `corral/backups/` over `board.json` (or
@@ -63,8 +65,6 @@ look at it (`herdr-app shot`).
 
 - Focus: the picked agent's terminal beside the board (left or right, your
   choice), to answer it without flipping away. Optional.
-- PR chips colored by state (open, merged) where `gh` can tell.
-- The question a "needs you" agent asks, read off its screen.
 - `corral-agents`: Herdr's agents list plus a cache-warmth sort and task
   names. Experimental, may never ship.
 - Resume for OpenCode; a cache countdown for Codex and OpenCode, if they ever

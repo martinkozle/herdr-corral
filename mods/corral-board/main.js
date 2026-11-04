@@ -7,6 +7,7 @@ import { agents, terminals, spaces, panes, machines, theme, run, exec, hc, props
 import { Store, newId, DIR } from "./store.js";
 import { Cache, warmth, warmthColor, prLinks, prLabel, linkGroup, repoOf } from "./cache.js";
 import { Codex } from "./codex.js";
+import { GhPrs } from "./gh.js";
 
 const ICONS = "mods/workspace-chrome";
 const COL_W = 280;
@@ -14,7 +15,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.13";
+const BUILD = "0.1.14";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -115,6 +116,9 @@ function waited(status, term, now) {
   return `waiting ${ago(at, now)}`;
 }
 
+// A GitHub PR's chip takes GitHub's own color for its state (a draft: the theme's muted).
+const PR_COLOR = { open: "#3fae6a", merged: "#8b7cf6", closed: "#f85149" };
+
 // A row's links, oldest mention first: { u, at } (at: last mentioned, ms). Older boards stored bare URLs.
 const linksOf = (r) => (r.links ?? []).map((l) => (typeof l === "string" ? { u: l, at: null } : l));
 
@@ -169,6 +173,7 @@ export default class Board extends View {
     this.store = new Store();
     this.cache = new Cache();
     this.codex = new Codex();
+    this.gh = new GhPrs();
     this.focus = cx.focus_handle();
     this.sel = { c: 1, i: 0 };
     this.open = null;      // the opened task's id
@@ -228,6 +233,8 @@ export default class Board extends View {
       if (DEMO) return;
       await this.cache.refresh(src.terminals(), cx, () => {});
       await this.codex.refresh(src.terminals(), new Set(machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name)));
+      // Every copy asks for its own PR states (they live in memory only), newest links first.
+      await this.gh.refresh(this.board.tasks.filter((x) => !x.archived).flatMap((x) => x.agents.flatMap((r) => linksOf(r).map((l) => l.u))).reverse());
       // With several copies open (a popup over the layout's board, boards in two windows), one keeps the
       // board's records: two writing them at once would each wipe the other's undo history. A copy takes over
       // once the keeper has been quiet for two ticks (closed).
@@ -1233,13 +1240,19 @@ export default class Board extends View {
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); click(); cx.notify(); })
       .child(label);
-    const chip = (l, label, i, fresh) => div().id(`pr-${row.address}-${i}`).min_w(0).px(5).h(16).rounded(4).flex().items_center()
-      .text_size(10.5).font_semibold().text_color(fresh ? t.accent : t.muted)
-      .bg(alpha(fresh ? t.accent : t.foreground, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
-      .tooltip(l.u)
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); openUrl(l.u); })
-      .child(div().truncate().child(label));
+    // A GitHub PR with a known state takes its state's color, any other link the accent; an old link fades.
+    const chip = (l, label, i, fresh) => {
+      const st = this.gh.of(l.u);
+      const c = st ? PR_COLOR[st] ?? t.muted : t.accent;
+      return div().id(`pr-${row.address}-${i}`).min_w(0).px(5).h(16).rounded(4).flex().items_center()
+        .text_size(10.5).font_semibold().text_color(c)
+        .bg(alpha(c, "1a")).when(!fresh, (el) => el.opacity(0.5))
+        .cursor_pointer().hover((s) => s.bg(alpha(c, "33")))
+        .tooltip(st ? `${st} · ${l.u}` : l.u)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); openUrl(l.u); })
+        .child(div().truncate().child(label));
+    };
     if (!picked) {
       const shown = rowLinks(row, false);
       const hidden = linksOf(row).length - shown.length;
