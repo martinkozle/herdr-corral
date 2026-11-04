@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.12";
+const BUILD = "0.1.13";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -1452,15 +1452,18 @@ export default class Board extends View {
     const open = this.launch?.pick === id;
     // The keyboard can open it (its key), so the form remembers each picker's options.
     this.launch.pickers = { ...(this.launch.pickers ?? {}), [id]: { options, onPick, value: value?.key } };
-    const row = (o, i) => div().id(`${id}-${o.key}`).h(24).px(8).flex().items_center().rounded(4).text_size(12).truncate().cursor_pointer()
+    // An option may bring a tile (a space's square) to show before its name.
+    const row = (o, i) => h_flex().id(`${id}-${o.key}`).h(24).px(8).gap(6).items_center().rounded(4).text_size(12).cursor_pointer()
       .text_color(o.key === value?.key ? t.foreground : t.muted).when(o.key === value?.key, (el) => el.bg(t.selected))
       .when(open && this.launch.hi === i, (el) => el.bg(t.hover).text_color(t.foreground))
       .hover((s) => s.bg(t.hover))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); this.launch.pick = null; onPick(o, cx); cx.notify(); })
-      .child(o.label);
+      .when(!!o.tile, (el) => el.child(o.tile()))
+      .child(div().flex_1().min_w(0).truncate().child(o.label));
     return v_flex().flex_1().min_w(0).gap(2)
-      .child(h_flex().id(id).h(26).px(8).gap(4).items_center().rounded(6).border(1).border_color(open ? t.accent : t.input).bg(t.background).cursor_pointer()
+      .child(h_flex().id(id).h(26).px(8).gap(6).items_center().rounded(6).border(1).border_color(open ? t.accent : t.input).bg(t.background).cursor_pointer()
+        .when(!!value?.tile, (el) => el.child(value.tile()))
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.launch.pick = open ? null : id; cx.notify(); })
         .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(value ? t.foreground : t.dim).child(value?.label ?? "…"))
@@ -1471,7 +1474,7 @@ export default class Board extends View {
   details(t, task) {
     const L = this.launch;
     const sp = src.spaces().find((s) => s.id === L?.space);
-    const spaceOpts = src.spaces().map((s) => ({ key: s.id, label: s.machine ? `${s.machine} · ${s.name}` : s.name }));
+    const spaceOpts = src.spaces().map((s) => ({ key: s.id, label: s.machine ? `${s.machine} · ${s.name}` : s.name, tile: () => spaceTile(t, s, 14) }));
     const agentOpts = [...(this.known[sp?.machine ?? ""] ?? []).filter((k) => k.installed).map((k) => ({ key: k.key, label: k.name })), { key: CUSTOM, label: "Custom command…" }];
     const info = this.openMode === "info";
     const label = (s) => div().text_size(11).text_color(t.dim).child(s);

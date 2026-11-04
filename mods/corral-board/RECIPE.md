@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.12`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.13`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.12`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.13`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -326,7 +326,9 @@ One full-size view on `canvas`, top to bottom:
 - **Space tiles:** the first letter of the space's name on the color the
   shipped `spaces` mod assigned (shared `"space.colors"`: id → `ansiN`), from
   a copy of its table: `ansi6 #22a99a`, `ansi3 #e3814f`, `ansi4 #5b8def`,
-  `ansi5 #8b7cf6`, `ansi2 #3fae6a`, `ansi1 #d9649a` (default `ansi6`).
+  `ansi5 #8b7cf6`, `ansi2 #3fae6a`, `ansi1 #d9649a` (default `ansi6`). Shown on
+  cards, the space filter, and in the launch form's Space picker (its choice
+  and each option).
 - **Herdr data:** `agents()`, `terminals()`, `spaces()`, `machines()`,
   `knownAgents()`, `theme()`, `layout()`, `focused()`, `shared()`.
   **Commands:** `layout.select`, `pane.focus`. **Programs:** `herdr-app`,

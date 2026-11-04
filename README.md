@@ -15,7 +15,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.12`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
+Status: `0.1.13`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
 Claude agent on another machine (its cache countdown and resume; Codex there
 works).
 
@@ -61,7 +61,6 @@ look at it (`herdr-app shot`).
 
 ## Later
 
-- Space tiles in the launch form.
 - Focus: the picked agent's terminal beside the board (left or right, your
   choice), to answer it without flipping away. Optional.
 - PR chips colored by state (open, merged) where `gh` can tell.
