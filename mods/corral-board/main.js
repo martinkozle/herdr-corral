@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.11";
+const BUILD = "0.1.12";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -915,6 +915,9 @@ export default class Board extends View {
 
   key(e, cx) {
     const k = e.keystroke;
+    // Whatever a key selects is scrolled into view (render does it, once the columns are known). Not on a
+    // click: the board would jump under the mouse as a drag starts.
+    this.reveal = true;
     if (this.typing) {
       if (k === "escape") {
         // Esc on notes: unchanged closes; changed asks before discarding (a long note mustn't be lost to a
@@ -1707,6 +1710,17 @@ export default class Board extends View {
     if (!this.follow && cols.length) {
       this.sel.c = Math.max(0, Math.min(cols.length - 1, this.sel.c));
       this.sel.i = Math.max(0, Math.min(Math.max(0, cols[this.sel.c].items.length - 1), this.sel.i));
+    }
+    // After a key: the selected column (or the one a moved task is headed to) scrolls fully into view.
+    if (this.reveal && cols.length && this.viewW) {
+      const c = this.follow?.c ?? this.sel.c;
+      const left = 10 + c * (COL_W + 10);
+      const max = Math.max(0, cols.length * (COL_W + 10) + 10 - this.viewW);
+      let x = this.scrollX ?? 0;
+      if (left - 10 < x) x = left - 10;
+      else if (left + COL_W + 10 > x + this.viewW) x = left + COL_W + 10 - this.viewW;
+      this.scrollX = Math.max(0, Math.min(max, x));
+      if (!this.follow) this.reveal = false;
     }
     // The launch form belongs to the selected card: it closes when the selection leaves it or the task goes.
     if (this.open && !this.follow && (!this.task(this.open) || cols[this.sel.c]?.items[this.sel.i]?.id !== this.open)) { this.open = null; this.launch = null; }

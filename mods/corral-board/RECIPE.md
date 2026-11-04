@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.11`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.12`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.11`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.12`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -26,7 +26,10 @@ One full-size view on `canvas`, top to bottom:
   task's name (else the agent's), status, cache badge. A click goes to the
   agent.
 - **Columns**, 280px wide, 10px apart, starting 10px in. Each scrolls
-  vertically on its own; the row of columns scrolls sideways.
+  vertically on its own; the row of columns scrolls sideways. After a key,
+  the selected column (or the one a moved task lands in) scrolls fully into
+  view, with 10px to spare; a click doesn't scroll (the board would jump
+  under the mouse as a drag starts).
   - **Column header** (32px): name (12px medium `muted`, `foreground` on the
     selected column; a long one is cut), task count (11px `dim`), then "⋯"
     (column menu) and "+" (new task). The Done column also has "Clear" while
