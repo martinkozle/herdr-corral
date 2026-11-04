@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.9`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.10`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.9`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.10`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -303,15 +303,17 @@ One full-size view on `canvas`, top to bottom:
   and no watcher (local only): every 30s tick runs one `sh -c` there that
   exits 3 when the transcript's size is unchanged, else prints the size and
   the tail's `assistant`/`api-request` lines.
-- **Codex sessions** (`codex.js`, for resume; no cache badge): Codex records
-  no process → session link (its TUI writes through a shared `codex
+- **Codex sessions** (`codex.js`, for resume; no cache badge): Codex records no process → session link (its TUI writes through a shared `codex
   app-server` daemon and logs without a thread id), so it is matched: every
   30s, one `bash -c` per machine with live Codex agents prints each process's
   `ps -o etime=` and the first line (`session_meta`: `id`, `timestamp`, `cwd`,
   `thread_source`) of every `~/.codex/sessions/**/rollout-*.jsonl` changed
   since the oldest started. Each agent takes the newest unclaimed user
   session in its folder started at most 10s before its process, newest
-  process first; none: the id after `codex resume` in its argv.
+  process first; none: the id after `codex resume` in its argv. One that
+  already has a session keeps it, unless it is the only Codex agent in its
+  folder (then `/new` moves it along): with two, a new session can't be told
+  apart, and keeping the old conversation beats swapping theirs.
 - **Space tiles:** the first letter of the space's name on the color the
   shipped `spaces` mod assigned (shared `"space.colors"`: id → `ansiN`), from
   a copy of its table: `ansi6 #22a99a`, `ansi3 #e3814f`, `ansi4 #5b8def`,
@@ -422,9 +424,12 @@ reload again.
   for remote terminals (Codex resume on `martinkozle` relies on it and works).
   `hc ls --json` leaves `foreground` out for every terminal.
 - The Codex session match is a guess from folder and start time: two Codex
-  agents started in one folder within ~10s can swap sessions. Herdr's own
-  Codex hook reports the exact id, but only to the app, and mods can't read it
-  (and it doesn't run on remote machines: no `HERDR_PANE_ID` there).
+  agents started in one folder within ~10s can swap sessions, and after
+  `/new` in one of two agents sharing a folder, it keeps its old
+  conversation. No hook can do better: Codex runs hooks in its shared
+  `codex app-server` daemon (hook input: session id, transcript path, cwd),
+  not in the terminal's process, and remote hooks don't get
+  `HC_TERMINAL_ID` (tried in 0.1.10-dev, removed).
 - `board.json` must stay under 1 MiB (`readTextFile`); the archive is what
   grows.
 

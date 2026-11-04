@@ -2,8 +2,10 @@
 // Codex records no process → session link: its TUI writes through a shared daemon and logs without a
 // thread id. So this matches: the newest user session (`~/.codex/sessions/**/rollout-*.jsonl`, first
 // line `session_meta`) started in the agent's folder after the agent's process did. Several Codex
-// agents in one folder: newer processes take newer sessions first. Approximate, but `/new` inside
-// Codex moves along, and an agent started with `codex resume <id>` keeps that id.
+// agents in one folder: newer processes take newer sessions first, and one that already has a session
+// keeps it (after a `/new` there it can't be told which agent ran it: the old conversation beats the other
+// agent's). Alone in its folder, `/new` moves along. An agent started with `codex resume <id>` keeps that id.
+// (No hook can tell either: Codex runs hooks in its shared app-server, not in the terminal's process.)
 import { exec } from "herdr";
 
 const machineOf = (addr) => (addr.includes("/") ? addr.split("/")[0] : null);
@@ -74,13 +76,24 @@ export class Codex {
     const taken = new Set();
     // Newest process first, so an older one in the same folder can't take a newer one's session.
     const procs = terms.map((t) => ({ t, at: started.get(t.foreground.pid) })).filter((p) => p.at).sort((a, b) => b.at - a.at);
+    const cwdOf = (t) => t.foreground.cwd ?? t.cwd;
+    const inCwd = new Map();
+    for (const { t } of procs) inCwd.set(cwdOf(t), (inCwd.get(cwdOf(t)) ?? 0) + 1);
+    // Sessions live processes already have: nobody else takes them.
+    const held = new Map();
+    for (const { t } of procs) { const e = this.byKey.get(keyOf(t)); if (e) held.set(e.sid, keyOf(t)); }
     for (const { t, at } of procs) {
-      const cwd = t.foreground.cwd ?? t.cwd;
-      const s = sessions.find((x) => !taken.has(x.id) && x.cwd === cwd && x.at >= at - SLACK_MS);
+      const cwd = cwdOf(t);
+      const k = keyOf(t);
+      const cur = this.byKey.get(k);
+      const s = sessions.find((x) => !taken.has(x.id) && (!held.has(x.id) || held.get(x.id) === k) && x.cwd === cwd && x.at >= at - SLACK_MS);
+      // A process with a session moves to a newer one (after /new) only when it's the only Codex agent in
+      // that folder.
+      const move = s && (!cur || s.id === cur.sid || inCwd.get(cwd) === 1);
       const argv = t.foreground.argv ?? [];
       const resumed = argv[1] === "resume" && argv[2] && !argv[2].startsWith("-") ? argv[2] : null;
-      const sid = s?.id ?? resumed;
-      if (s) taken.add(s.id);
+      const sid = (move ? s.id : cur?.sid) ?? resumed;
+      if (sid) taken.add(sid);
       if (sid) this.byKey.set(keyOf(t), { sid, cwd });
     }
   }

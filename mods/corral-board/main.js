@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.9";
+const BUILD = "0.1.10";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -576,6 +576,26 @@ export default class Board extends View {
     else b.tasks.push(task);
   }
 
+  // K / J pressed faster than the board saves: each press acts on the order as already pressed (the last
+  // move applied on top of what's shown), not on the order last saved, or it moved the wrong card.
+  order(col) {
+    const ids = col.items.map((x) => x.id);
+    const p = this.reordering;
+    if (p && p.col === col.id) { const j = ids.indexOf(p.id); if (j >= 0) { ids.splice(j, 1); ids.splice(p.i, 0, p.id); } }
+    return ids;
+  }
+
+  reorder(col, id, before, after, i, cx) {
+    if (!id) return;
+    const n = (this.reordering?.n ?? 0) + 1;
+    this.reordering = { col: col.id, id, i, n };
+    cx.spawn(async (cx) => {
+      await this.store.change((b) => this.placeNear(b, id, col.id, before, after));
+      if (this.reordering?.n === n) this.reordering = null;
+      cx.notify();
+    });
+  }
+
   // Puts a task in a column just before task `before`, or just after task `after` (the cards shown around
   // the spot, so hidden ones don't shift it), or at the column's end.
   placeNear(b, taskId, col, before, after) {
@@ -1023,9 +1043,9 @@ export default class Board extends View {
       case "L": case "shift-l": case "shift-right": moveCol(1); break;
       case "K": case "shift-k": case "shift-up":
         // Relative to the card shown next to it, so cards a filter hides don't count.
-        if (task && !pending && this.sel.i > 0) { const nb = col.items[this.sel.i - 1].id; this.change((b) => this.placeNear(b, task.id, col.id, nb, null), cx); this.sel.i--; } break;
+        if (task && !pending && col.id !== INBOX && this.sel.i > 0) { const ids = this.order(col); this.reorder(col, ids[this.sel.i], ids[this.sel.i - 1], null, this.sel.i - 1, cx); this.sel.i--; } break;
       case "J": case "shift-j": case "shift-down":
-        if (task && !pending && this.sel.i < col.items.length - 1) { const nb = col.items[this.sel.i + 1].id; this.change((b) => this.placeNear(b, task.id, col.id, null, nb), cx); this.sel.i++; } break;
+        if (task && !pending && col.id !== INBOX && this.sel.i < col.items.length - 1) { const ids = this.order(col); this.reorder(col, ids[this.sel.i], null, ids[this.sel.i + 1], this.sel.i + 1, cx); this.sel.i++; } break;
       case "m": if (task || item?.kind === "inbox") this.bar = { kind: "move" }; break;
       case "space": {
         if (!task) break;
