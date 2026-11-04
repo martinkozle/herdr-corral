@@ -145,9 +145,16 @@ export class Cache {
     let last = null;
     let ttl = null;
     const prs = [];
+    const said = new Map(); // link → when the transcript last mentioned it (ms)
     for (const line of lines) {
       if (!line.startsWith("{")) continue;
-      if (LINKY.some((x) => line.includes(x))) prs.push(...prLinks(line));
+      if (LINKY.some((x) => line.includes(x))) {
+        const found = prLinks(line);
+        prs.push(...found);
+        let at = null;
+        try { at = Date.parse(JSON.parse(line).timestamp) || null; } catch { /* tail's half line */ }
+        if (at) for (const u of found) said.set(u, at);
+      }
       if (!line.includes('"assistant"') && !line.includes('"api-request"')) continue;
       let j;
       try { j = JSON.parse(line); } catch { continue; }
@@ -157,7 +164,7 @@ export class Cache {
       }
     }
     // The last ten links the conversation mentions, newest last.
-    if (prs.length) e.prs = prLinks(prs.join(" ")).slice(-10);
+    if (prs.length) { e.prs = prLinks(prs.join(" ")).slice(-10); e.prAt = said; }
     e.ttl = ttl ?? e.ttl ?? "5m";
     // A tail with no assistant reply in it keeps what an earlier read found.
     e.expires = last ? Date.parse(last) + TTL[e.ttl] : e.expires;

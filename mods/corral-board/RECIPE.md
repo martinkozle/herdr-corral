@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.10`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.11`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.10`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.11`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -180,17 +180,23 @@ One full-size view on `canvas`, top to bottom:
   (`enter` on the card; the agents' own number hints hide meanwhile, since
   digits now mean links), it lists all of them (up to nine), numbered: `1`–`9`
   opens one; under each chip, a dim line gives the host and how long ago it
-  was first seen (its own line, so nothing is cut); a long repository name
+  was last mentioned (its own line, so nothing is cut); a long repository name
   shortens with … (the tooltip has the link). And
-  a link first seen an hour or more before its repository's latest is dimmed
-  (an earlier round, most likely; links seen close together stay lit, and
-  links without a recorded time are never dimmed). A click opens
+  a link last mentioned an hour or more before the agent's latest link (in
+  any repository) is dimmed (an earlier round, most likely; links mentioned
+  close together, a dev and a prod PR say, stay lit, and links without a
+  recorded time are never dimmed). By mouse: after the unpicked links a dim
+  "+N more" chip (or "⋯" when none are hidden) picks the row, and "less"
+  under the picked list unpicks it. A click opens
   any chip. The row keeps the last ten (`links: [{ u, at }]`, in the order
   they were last mentioned; older boards' bare URLs still read), and they
   stay after the agent ends. "Newest" is the last mentioned, so a PR the
   agent keeps talking about moves to the front. Only full links with a
   number count: a bare "#412" or `git push`'s "create a pull request" link
-  doesn't.
+  doesn't. "Last mentioned": for Claude, the time of the transcript line
+  that last had it (so a re-posted PR is fresh again, even in the same
+  order); for other agents, when it was seen again after a link that had
+  come after it (a screen has no times).
 - **Filter:** shows tasks whose title, notes or agent names contain the text,
   and Inbox entries whose name does.
 - **Keys** (only while the board has the keyboard; text fields take every key):

@@ -14,7 +14,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.10";
+const BUILD = "0.1.11";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -115,7 +115,7 @@ function waited(status, term, now) {
   return `waiting ${ago(at, now)}`;
 }
 
-// A row's links, oldest mention first: { u, at } (at: first seen, ms). Older boards stored bare URLs.
+// A row's links, oldest mention first: { u, at } (at: last mentioned, ms). Older boards stored bare URLs.
 const linksOf = (r) => (r.links ?? []).map((l) => (typeof l === "string" ? { u: l, at: null } : l));
 
 // The links shown on a row that isn't picked: the newest of each repository (or Jira project), newest
@@ -338,7 +338,7 @@ export default class Board extends View {
     }
   }
 
-  // Keeps the last ten links of each agent on its row (in mention order, each with when it was first seen),
+  // Keeps the last ten links of each agent on its row (in mention order, each with when it was last mentioned),
   // so they stay after the agent ends.
   async recordLinks() {
     const terms = new Map(src.terminals().map((x) => [x.address, x]));
@@ -346,13 +346,24 @@ export default class Board extends View {
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
       if (term?.labels?.["corral.task"] !== t.id) continue;
-      const found = term.report?.app === "claude-code" ? this.cache.info(term)?.prs : this.screenLinks.get(r.address);
+      const claude = term.report?.app === "claude-code";
+      const found = claude ? this.cache.info(term)?.prs : this.screenLinks.get(r.address);
       if (!found?.length) continue;
+      const said = claude ? this.cache.info(term)?.prAt : null;
       const old = linksOf(r);
       const urls = prLinks([...old.map((l) => l.u), ...found].join(" ")).slice(-10);
-      if (urls.join(" ") === old.map((l) => l.u).join(" ") && !(r.links ?? []).some((l) => typeof l === "string")) continue;
       const now = Date.now();
-      ups.push([t.id, r.address, urls.map((u) => ({ u, at: old.find((l) => l.u === u)?.at ?? now }))]);
+      const oi = (u) => old.findIndex((l) => l.u === u);
+      const links = urls.map((u, i) => {
+        const was = old[oi(u)];
+        // Claude's transcript says when each mention was. A screen doesn't: a link counts as mentioned again
+        // when it moved after one that came after it before.
+        const again = !said && was && urls.slice(0, i).some((v) => oi(v) > oi(u));
+        const at = said?.get(u) ? Math.max(said.get(u), was?.at ?? 0) : again ? now : was?.at ?? now;
+        return { u, at };
+      });
+      if (JSON.stringify(links) === JSON.stringify(r.links ?? [])) continue;
+      ups.push([t.id, r.address, links]);
     }
     if (!ups.length) return;
     await this.store.change((b) => {
@@ -1147,7 +1158,7 @@ export default class Board extends View {
       .child(w.text);
   }
 
-  agentRow(t, row, st, now, hovered, taskId, picked, num, showX, hints, here = () => {}) {
+  agentRow(t, row, st, now, hovered, taskId, picked, num, showX, hints, here = () => {}, pick = () => {}) {
     const live = st.state === "live";
     const resumable = st.state === "ended" && !!row.session && !st.elsewhere;
     const a = st.agent;
@@ -1204,14 +1215,21 @@ export default class Board extends View {
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => { cx.stop_propagation(); here(); this.unlist(taskId, row.address, cx); })
           .child("×"))))
-      .when(!!row.links?.length, (el) => el.child(this.linksBlock(t, row, picked, now)));
+      .when(!!row.links?.length, (el) => el.child(this.linksBlock(t, row, picked, now, pick)));
   }
 
   // The links an agent printed (PRs, Jira issues), across the row under its name, from the name's left edge.
   // Unpicked: the newest of each repository, one chip per line ("web-app #412"). Picked: every link, grouped
-  // under its repository's name, each a numbered line ("1  #412  3h ago"; 1–9 opens it); a link first seen an
-  // hour or more before its repository's latest is dimmed. A chip's tooltip is its whole link.
-  linksBlock(t, row, picked, now) {
+  // under its repository's name, each a numbered line ("1  #412  3h ago"; 1–9 opens it); a link last mentioned an
+  // hour or more before the agent's latest is dimmed. A chip's tooltip is its whole link. For the mouse, a dim
+  // "+N" / "⋯" chip after the unpicked links picks the row (all links), and "less" under the picked ones unpicks it.
+  linksBlock(t, row, picked, now, pick) {
+    const more = (id, label, tip, click) => div().id(`${id}-${row.address}`).px(5).h(16).rounded(4).flex().items_center()
+      .text_size(10.5).text_color(t.dim).cursor_pointer().hover((s) => s.bg(alpha(t.foreground, "1a")).text_color(t.foreground))
+      .tooltip(tip)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); click(); cx.notify(); })
+      .child(label);
     const chip = (l, label, i, fresh) => div().id(`pr-${row.address}-${i}`).min_w(0).px(5).h(16).rounded(4).flex().items_center()
       .text_size(10.5).font_semibold().text_color(fresh ? t.accent : t.muted)
       .bg(alpha(fresh ? t.accent : t.foreground, "1a")).cursor_pointer().hover((s) => s.bg(alpha(t.accent, "33")))
@@ -1220,22 +1238,26 @@ export default class Board extends View {
       .on_click((_e, cx) => { cx.stop_propagation(); openUrl(l.u); })
       .child(div().truncate().child(label));
     if (!picked) {
+      const shown = rowLinks(row, false);
+      const hidden = linksOf(row).length - shown.length;
       return v_flex().pl(34).gap(3).items_start().min_w(0)
-        .children(rowLinks(row, false).map((l, i) => h_flex().max_w_full().min_w(0).child(chip(l, prLabel(l.u), i, true))));
+        .children(shown.map((l, i) => h_flex().max_w_full().min_w(0).child(chip(l, prLabel(l.u), i, true))))
+        .child(more("prs-all", hidden > 0 ? `+${hidden} more` : "⋯", "All links, by repository, with when each was mentioned", pick));
     }
     let n = 0;
-    return v_flex().pl(20).gap(6).min_w(0).children(linkGroups(row).map((g) => v_flex().gap(3).min_w(0)
+    // Dimmed: mentioned an hour or more before the agent's latest link (an earlier round, most likely); links
+    // mentioned close together (a dev and a prod PR, say) all stay lit. Unknown age: lit.
+    const latest = Math.max(...linksOf(row).map((x) => x.at ?? 0));
+    return v_flex().pl(20).gap(6).min_w(0).child(v_flex().gap(6).min_w(0).children(linkGroups(row).map((g) => v_flex().gap(3).min_w(0)
       .child(div().pl(14).truncate().text_size(10.5).text_color(t.dim).child(g.name))
       .children(g.links.map((l) => {
         const i = n++;
-        // Dimmed only when its repository has a link first seen an hour or more after it (an earlier round,
-        // most likely); links seen close together (a dev and a prod PR, say) all stay lit. Unknown age: lit.
-        const latest = Math.max(...g.links.map((x) => x.at ?? 0));
         return h_flex().gap(6).items_center().min_w(0).when(i >= 9, (el) => el.opacity(0.6))
           .child(div().w(8).flex_none().child(this.kbd(t, i < 9 ? String(i + 1) : "")))
           .child(chip(l, shortLabel(l.u), i, !l.at || latest - l.at < 3600000))
           .when(!!l.at, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${ago(l.at, now)} ago`)));
-      }))));
+      })))))
+      .child(h_flex().pl(10).child(more("prs-less", "less", "Back to the newest of each repository", () => { this.pickAgent = null; })));
   }
 
   // Hover bookkeeping shared by cards and column bodies while dragging.
@@ -1384,7 +1406,7 @@ export default class Board extends View {
           .child(h_flex().gap(6).items_start()
             .child(div().flex_1().min_w(0).child(task.notes || "Add notes…"))
             .child(this.kbd(t, "i", hints))))
-      .when(shownRows.length > 0, (el) => el.child(v_flex().gap(4).children(shownRows.map((x, n) => this.agentRow(t, x.r, x.st, now, hovered, task.id, x.r.address === picked, n < 9 ? String(n + 1) : "", picked === x.r.address, hints && !picked, here)))))
+      .when(shownRows.length > 0, (el) => el.child(v_flex().gap(4).children(shownRows.map((x, n) => this.agentRow(t, x.r, x.st, now, hovered, task.id, x.r.address === picked, n < 9 ? String(n + 1) : "", picked === x.r.address, hints && !picked, here, () => { this.focus.focus(); here(); this.pickAgent = n; })))))
       .when(launching, (el) => el.child(this.details(t, task)));
   }
 

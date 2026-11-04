@@ -15,7 +15,7 @@ small mods. Each mod works on its own.
 - **Corral layout** (`layouts/corral.json`): Herdr's main window with the
   board one key (`cmd-shift-k`) or one click away.
 
-Status: `0.1.10`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
+Status: `0.1.11`, in daily use. Built on herdr-app 0.1.12. Not yet tried: a
 Claude agent on another machine (its cache countdown and resume; Codex there
 works).
 
