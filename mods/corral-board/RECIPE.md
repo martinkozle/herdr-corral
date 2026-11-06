@@ -8,14 +8,14 @@ anywhere in Herdr wait in an Inbox until you give them a task.
 
 ![Corral Board](preview.png)
 
-Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.16`).
+Built and used on herdr-app 0.1.12 / hc 0.1.17 (build `0.1.17`).
 
 ## What you see
 
 One full-size view on `canvas`, top to bottom:
 
 - **Header** (40px, `chrome`, bottom `border`): "Corral" (13px semibold), the
-  build (`0.1.16`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
+  build (`0.1.17`, 10.5px `dim`), a ⌨ mark (`accent` while the board has the
   keyboard, faint `dim` when a click is needed first), the filter field
   (180px, "Filter tasks ( / )": its key is in the placeholder), then on the right "+ Task", "?" (lit
   while the key help shows), and "← Terminals" (corral layout) or "Close"
@@ -301,6 +301,13 @@ One full-size view on `canvas`, top to bottom:
   (`report.app`) rejoin their task if it lost them. A listed address counts as
   that agent only while its terminal still carries the task's label and runs
   an agent; otherwise the row is "ended".
+- **Session ids:** a row gets its agent's conversation (`session`, `cwd`)
+  the moment the agent joins a task, when the board knows it already (an
+  Inbox agent made into a task or dropped on one), and at every 30s check
+  otherwise (a fresh launch has none until its first message). A live agent
+  in no task whose conversation is an ended row's (resumed by hand with
+  `claude --resume <id>`) goes back on that row: labelled, the row's address
+  moved to it, as Resume does.
 - **Launch / resume:** `exec("herdr-app", ["do", "tab.new", JSON.stringify({
   space, name, argv, task?, folder? })])` → `{ space, tab, terminal }`, then
   the label, then `pane.focus {terminal}`. Custom commands are split on
@@ -310,8 +317,9 @@ One full-size view on `canvas`, top to bottom:
   `terminals()[i].foreground.pid` → `~/.claude/sessions/<pid>.json` (`sessionId`, `cwd`,
   `status`, `waitingFor`) → `exec("find", …)` once for
   `~/.claude/projects/*/<sessionId>.jsonl` → `exec("tail", ["-c", "2000000",
-  path])`. TTL = 1h if the last `api-request` line with `querySource ===
-  "repl_main_thread"` has a `cacheControl[].value.ttl` of `"1h"`, else 5m (the
+  path])`. TTL = 1h if the last `api-request` line with a `querySource` of
+  `"repl_main_thread"` or `"repl_main_thread:…"` (an output style adds
+  `:outputStyle:custom`) has a `cacheControl[].value.ttl` of `"1h"`, else 5m (the
   last known one if none is in the tail). Expiry = last `assistant`
   `timestamp` + TTL. `watchFolder` on each transcript's folder re-reads it.
   On another machine (`m/t4`): its home from `exec("printenv", ["HOME"],
@@ -364,6 +372,18 @@ reload again.
 
 ## Watch out
 
+- **A Claude `/resume` of a conversation from another folder runs in Claude's
+  background daemon** (Claude Code 2.1.x: a `claude bg-spare` process),
+  not in the tab: the tab's `claude` only shows it and holds an empty
+  session of its own. Herdr then reports the tab as a shell, so the board
+  can't see that agent at all. Resume from the board, or
+  `cd <folder> && claude --resume <id>`.
+- **Claude's `querySource` grows suffixes:** with an output style it is
+  `repl_main_thread:outputStyle:custom`. An exact match missed those, read
+  every 1h cache as 5m and showed "cold" with most of the hour left.
+- **Session ids saved only at the 30s check** lose an agent that ends
+  sooner: made into a task from the Inbox and quit seconds later, it had no
+  Resume. Save them when the agent joins.
 - **A text box finishes only itself.** Opening a second box fires the first
   one's blur after the second has replaced `this.rename` / `this.notesEdit`:
   a blur handler that read those saved the wrong box and closed the new one.

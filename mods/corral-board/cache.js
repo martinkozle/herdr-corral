@@ -164,7 +164,9 @@ export class Cache {
       let j;
       try { j = JSON.parse(line); } catch { continue; }
       if (j.type === "assistant" && j.timestamp) last = j.timestamp;
-      if (j.type === "api-request" && j.querySource === "repl_main_thread") {
+      // The main conversation's requests ("repl_main_thread", or "repl_main_thread:outputStyle:custom" with an
+      // output style), not a sub-agent's.
+      if (j.type === "api-request" && /^repl_main_thread(:|$)/.test(j.querySource ?? "")) {
         ttl = (j.cacheControl ?? []).some((c) => c?.value?.ttl === "1h") ? "1h" : "5m";
       }
     }

@@ -15,7 +15,7 @@ const INBOX = "inbox";
 const CUSTOM = "__custom";
 // In notes and the first message, Enter saves / launches and Shift+Enter is a new line, as in Claude Code.
 // Bump on every change: shown in the header and the ? bar, to see which build is running.
-const BUILD = "0.1.16";
+const BUILD = "0.1.17";
 
 // Demo mode, for screenshots: with corral/demo.json present the board shows that file's board, spaces and
 // agents instead of the real ones, and saves, labels and polls nothing. See RECIPE "Demo mode".
@@ -306,14 +306,43 @@ export default class Board extends View {
       // Only terminals running an agent rejoin: a shell left after its agent exited is not one.
       if (task && t.state === "live" && t.report?.app && !task.agents.some((a) => a.address === t.address)) missing.push([id, t]);
     }
-    if (!missing.length) return;
+    // An agent in no task that runs the conversation of an ended row (resumed by hand: `claude --resume <id>`)
+    // goes back on that row instead of waiting in the Inbox.
+    const terms = new Map(src.terminals().map((x) => [x.address, x]));
+    const ags = new Map(src.agents().map((a) => [a.address, a]));
+    const back = [];
+    for (const t of terms.values()) {
+      const lb = t.labels?.["corral.task"];
+      if (t.state !== "live" || t.parent || (lb && this.task(lb))) continue;
+      const s = this.sessionOf(t);
+      if (!s) continue;
+      for (const task of this.board.tasks) {
+        const r = task.agents.find((x) => x.session === s.session && x.address !== t.address && this.rowState(task, x, terms, ags).state === "ended");
+        if (r && !back.some((x) => x[1] === r.address)) { back.push([task.id, r.address, t]); break; }
+      }
+    }
+    if (!missing.length && !back.length) return;
+    for (const [id, , t] of back) await hc(["label", t.address, `corral.task=${id}`]).catch(() => {});
     await this.store.change((b) => {
       for (const [id, t] of missing) {
         const task = b.tasks.find((x) => x.id === id);
         // A terminal can have no title yet (just started): fall back to its program, then the task.
-        if (task && !task.agents.some((a) => a.address === t.address)) task.agents.push({ address: t.address, app: t.report?.app ?? null, name: t.title || t.program?.name || task.title, space: t.labels?.["herdr.space"] ?? null, started: t.created_ms ?? Date.now() });
+        if (task && !task.agents.some((a) => a.address === t.address)) task.agents.push({ address: t.address, app: t.report?.app ?? null, name: t.title || t.program?.name || task.title, space: t.labels?.["herdr.space"] ?? null, started: t.created_ms ?? Date.now(), ...this.sessionOf(t) });
+      }
+      for (const [id, addr, t] of back) {
+        const r = b.tasks.find((x) => x.id === id)?.agents.find((a) => a.address === addr);
+        if (r) { r.address = t.address; r.space = t.labels?.["herdr.space"] ?? r.space; r.started = t.created_ms ?? Date.now(); }
       }
     }, { auto: true });
+  }
+
+  // The conversation a live Claude or Codex terminal runs, as row fields ({ session, cwd, app }), or null.
+  // Claude: only once it's on disk (written with the first message; `claude --resume` refuses a session
+  // that has none). Codex writes its session file at start.
+  sessionOf(term) {
+    const app = term?.report?.app;
+    const c = app === "claude-code" ? this.cache.info(term) : app === "codex" ? this.codex.info(term) : null;
+    return c?.sid && (app !== "claude-code" || c.path) ? { session: c.sid, cwd: c.cwd ?? null, app } : null;
   }
 
   // Remembers each live Claude or Codex agent's session and folder on its row: what resuming needs later.
@@ -323,12 +352,8 @@ export default class Board extends View {
     for (const t of this.board.tasks) for (const r of t.agents) {
       const term = terms.get(r.address);
       if (term?.labels?.["corral.task"] !== t.id) continue;
-      const app = term.report?.app;
-      // Claude: resumable only once the conversation is on disk (written with the first message;
-      // `claude --resume` refuses a session that has none). Codex writes its session file at start.
-      const c = app === "claude-code" ? this.cache.info(term) : app === "codex" ? this.codex.info(term) : null;
-      const info = c?.sid && (app !== "claude-code" || c.path) ? c : null;
-      if (info && (r.session !== info.sid || r.cwd !== info.cwd || r.app !== app)) ups.push([t.id, r.address, info.sid, info.cwd, app]);
+      const s = this.sessionOf(term);
+      if (s && (r.session !== s.session || r.cwd !== s.cwd || r.app !== s.app)) ups.push([t.id, r.address, s.session, s.cwd, s.app]);
     }
     if (!ups.length) return;
     await this.store.change((b) => {
@@ -647,8 +672,11 @@ export default class Board extends View {
     return task;
   }
 
+  // A row for an agent joining a task, with its conversation when known already: an agent that ends before
+  // the next 30s check can still be resumed.
   rowFrom(a) {
-    return { address: a.address, app: a.app ?? null, name: agentName(a), space: a.space ?? null, started: Date.now() };
+    const s = this.sessionOf(src.terminals().find((x) => x.address === a.address));
+    return { address: a.address, app: a.app ?? null, name: agentName(a), space: a.space ?? null, started: Date.now(), ...s };
   }
 
   // A label value of "" removes the label.
